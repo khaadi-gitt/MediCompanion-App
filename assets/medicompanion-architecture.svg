@@ -1,0 +1,505 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 1080" width="1500" height="1080" font-family="Segoe UI, Arial, sans-serif">
+
+  <!-- Background -->
+  <rect width="1500" height="1080" fill="#F0F4F8"/>
+
+  <!-- ══════════════════════════════════════════
+       TITLE
+  ══════════════════════════════════════════ -->
+  <rect x="0" y="0" width="1500" height="56" fill="#1A365D"/>
+  <text x="750" y="22" text-anchor="middle" fill="#90CDF4" font-size="11" font-weight="600" letter-spacing="3">MEDICOMPANION</text>
+  <text x="750" y="42" text-anchor="middle" fill="#FFFFFF" font-size="18" font-weight="700">System Architecture — Complete Overview</text>
+
+  <!-- ══════════════════════════════════════════
+       LAYER LABELS (left side)
+  ══════════════════════════════════════════ -->
+  <!-- Client layer label -->
+  <rect x="0" y="72" width="30" height="120" fill="#2B6CB0" rx="0"/>
+  <text x="15" y="172" text-anchor="middle" fill="white" font-size="10" font-weight="700" transform="rotate(-90,15,132)" letter-spacing="1">CLIENT</text>
+
+  <!-- Backend layer label -->
+  <rect x="0" y="212" width="30" height="100" fill="#276749" rx="0"/>
+  <text x="15" y="295" text-anchor="middle" fill="white" font-size="10" font-weight="700" transform="rotate(-90,15,262)" letter-spacing="1">BACKEND</text>
+
+  <!-- Data layer label -->
+  <rect x="0" y="332" width="30" height="170" fill="#553C9A" rx="0"/>
+  <text x="15" y="442" text-anchor="middle" fill="white" font-size="10" font-weight="700" transform="rotate(-90,15,417)" letter-spacing="1">DATA LAYER</text>
+
+  <!-- RAG label -->
+  <rect x="0" y="522" width="30" height="260" fill="#C05621" rx="0"/>
+  <text x="15" y="672" text-anchor="middle" fill="white" font-size="10" font-weight="700" transform="rotate(-90,15,652)" letter-spacing="1">RAG PIPELINE</text>
+
+  <!-- Fine-tune label -->
+  <rect x="0" y="802" width="30" height="240" fill="#285E61" rx="0"/>
+  <text x="15" y="942" text-anchor="middle" fill="white" font-size="10" font-weight="700" transform="rotate(-90,15,922)" letter-spacing="1">FINE-TUNING</text>
+
+  <!-- ══════════════════════════════════════════
+       CLIENT LAYER
+  ══════════════════════════════════════════ -->
+  <rect x="40" y="72" width="1445" height="130" fill="#EBF8FF" rx="10" stroke="#90CDF4" stroke-width="1.5"/>
+  <text x="750" y="92" text-anchor="middle" fill="#2B6CB0" font-size="11" font-weight="700" letter-spacing="1">CLIENT LAYER</text>
+
+  <!-- Mobile App -->
+  <rect x="80" y="102" width="220" height="85" fill="#3182CE" rx="10"/>
+  <text x="190" y="128" text-anchor="middle" fill="white" font-size="13" font-weight="700">📱 Mobile App</text>
+  <text x="190" y="148" text-anchor="middle" fill="#BEE3F8" font-size="10">React Native / Expo</text>
+  <text x="190" y="163" text-anchor="middle" fill="#BEE3F8" font-size="10">iOS · Android</text>
+  <text x="190" y="178" text-anchor="middle" fill="#BEE3F8" font-size="10">18 Screens · 5 Components</text>
+
+  <!-- Desktop App -->
+  <rect x="340" y="102" width="220" height="85" fill="#2B6CB0" rx="10"/>
+  <text x="450" y="128" text-anchor="middle" fill="white" font-size="13" font-weight="700">🖥 Desktop App</text>
+  <text x="450" y="148" text-anchor="middle" fill="#BEE3F8" font-size="10">Electron v37</text>
+  <text x="450" y="163" text-anchor="middle" fill="#BEE3F8" font-size="10">Windows · macOS</text>
+  <text x="450" y="178" text-anchor="middle" fill="#BEE3F8" font-size="10">1200×800 · Auto-hide menu</text>
+
+  <!-- Web App -->
+  <rect x="600" y="102" width="220" height="85" fill="#2C5282" rx="10"/>
+  <text x="710" y="128" text-anchor="middle" fill="white" font-size="13" font-weight="700">🌐 Web App</text>
+  <text x="710" y="148" text-anchor="middle" fill="#BEE3F8" font-size="10">React Native Web</text>
+  <text x="710" y="163" text-anchor="middle" fill="#BEE3F8" font-size="10">Browser (Expo Web)</text>
+  <text x="710" y="178" text-anchor="middle" fill="#BEE3F8" font-size="10">Responsive Design</text>
+
+  <!-- Admin Panel -->
+  <rect x="860" y="102" width="220" height="85" fill="#1A365D" rx="10"/>
+  <text x="970" y="128" text-anchor="middle" fill="white" font-size="13" font-weight="700">⚙ Admin Panel</text>
+  <text x="970" y="148" text-anchor="middle" fill="#BEE3F8" font-size="10">admin.html (Browser)</text>
+  <text x="970" y="163" text-anchor="middle" fill="#BEE3F8" font-size="10">localhost:5050/admin</text>
+  <text x="970" y="178" text-anchor="middle" fill="#BEE3F8" font-size="10">Docs · Config · Training</text>
+
+  <!-- Supabase Edge -->
+  <rect x="1120" y="102" width="340" height="85" fill="#44337A" rx="10"/>
+  <text x="1290" y="128" text-anchor="middle" fill="white" font-size="13" font-weight="700">☁ Supabase Edge Function</text>
+  <text x="1290" y="148" text-anchor="middle" fill="#D6BCFA" font-size="10">Deno Runtime · medical-chat/index.ts</text>
+  <text x="1290" y="163" text-anchor="middle" fill="#D6BCFA" font-size="10">Medical intent validation</text>
+  <text x="1290" y="178" text-anchor="middle" fill="#D6BCFA" font-size="10">Blocks non-medical queries</text>
+
+  <!-- Arrows from clients to backend -->
+  <line x1="190" y1="187" x2="190" y2="212" stroke="#3182CE" stroke-width="2" marker-end="url(#arr-blue)"/>
+  <line x1="450" y1="187" x2="450" y2="212" stroke="#3182CE" stroke-width="2" marker-end="url(#arr-blue)"/>
+  <line x1="710" y1="187" x2="710" y2="212" stroke="#3182CE" stroke-width="2" marker-end="url(#arr-blue)"/>
+  <line x1="970" y1="187" x2="970" y2="212" stroke="#3182CE" stroke-width="2" marker-end="url(#arr-blue)"/>
+
+  <!-- HTTP label -->
+  <text x="570" y="205" text-anchor="middle" fill="#2B6CB0" font-size="10" font-weight="600">HTTP :5050</text>
+
+  <!-- ══════════════════════════════════════════
+       BACKEND LAYER
+  ══════════════════════════════════════════ -->
+  <rect x="40" y="212" width="1445" height="110" fill="#F0FFF4" rx="10" stroke="#9AE6B4" stroke-width="1.5"/>
+  <text x="500" y="232" text-anchor="middle" fill="#276749" font-size="11" font-weight="700" letter-spacing="1">BACKEND LAYER — Node.js · raw http.createServer · Port 5050 · server.js (2963 lines)</text>
+
+  <!-- Auth APIs -->
+  <rect x="60" y="240" width="220" height="72" fill="#276749" rx="8"/>
+  <text x="170" y="260" text-anchor="middle" fill="white" font-size="12" font-weight="700">🔐 Auth APIs</text>
+  <text x="170" y="277" text-anchor="middle" fill="#9AE6B4" font-size="9">POST /auth/signup/send-otp</text>
+  <text x="170" y="291" text-anchor="middle" fill="#9AE6B4" font-size="9">POST /auth/signup/verify-otp</text>
+  <text x="170" y="305" text-anchor="middle" fill="#9AE6B4" font-size="9">POST /auth/login  · /auth/password/*</text>
+
+  <!-- Chat APIs -->
+  <rect x="300" y="240" width="220" height="72" fill="#22543D" rx="8"/>
+  <text x="410" y="260" text-anchor="middle" fill="white" font-size="12" font-weight="700">💬 Chat APIs</text>
+  <text x="410" y="277" text-anchor="middle" fill="#9AE6B4" font-size="9">POST /api/chat  (RAG pipeline)</text>
+  <text x="410" y="291" text-anchor="middle" fill="#9AE6B4" font-size="9">GET  /api/chat/history</text>
+  <text x="410" y="305" text-anchor="middle" fill="#9AE6B4" font-size="9">GET  /api/chat/messages</text>
+
+  <!-- Profile APIs -->
+  <rect x="540" y="240" width="220" height="72" fill="#1C4532" rx="8"/>
+  <text x="650" y="260" text-anchor="middle" fill="white" font-size="12" font-weight="700">👤 Profile APIs</text>
+  <text x="650" y="277" text-anchor="middle" fill="#9AE6B4" font-size="9">POST /profile/update</text>
+  <text x="650" y="291" text-anchor="middle" fill="#9AE6B4" font-size="9">POST /account/delete</text>
+  <text x="650" y="305" text-anchor="middle" fill="#9AE6B4" font-size="9">GET  /uploads/* (static files)</text>
+
+  <!-- Admin APIs -->
+  <rect x="780" y="240" width="230" height="72" fill="#276749" rx="8"/>
+  <text x="895" y="260" text-anchor="middle" fill="white" font-size="12" font-weight="700">⚙ Admin APIs</text>
+  <text x="895" y="277" text-anchor="middle" fill="#9AE6B4" font-size="9">POST /admin/login  · GET /admin/config</text>
+  <text x="895" y="291" text-anchor="middle" fill="#9AE6B4" font-size="9">POST /admin/documents/upload</text>
+  <text x="895" y="305" text-anchor="middle" fill="#9AE6B4" font-size="9">GET|POST|PUT|DELETE /admin/training/*</text>
+
+  <!-- Training APIs -->
+  <rect x="1030" y="240" width="430" height="72" fill="#22543D" rx="8"/>
+  <text x="1245" y="260" text-anchor="middle" fill="white" font-size="12" font-weight="700">🎓 Training APIs (28 total endpoints)</text>
+  <text x="1245" y="277" text-anchor="middle" fill="#9AE6B4" font-size="9">POST /admin/training/start  ·  GET /admin/training/status</text>
+  <text x="1245" y="291" text-anchor="middle" fill="#9AE6B4" font-size="9">POST /admin/training/apply  ·  POST /admin/training/cancel</text>
+  <text x="1245" y="305" text-anchor="middle" fill="#9AE6B4" font-size="9">GET|POST|PUT|PATCH|DELETE /admin/training/examples/:id</text>
+
+  <!-- ══════════════════════════════════════════
+       DATA LAYER
+  ══════════════════════════════════════════ -->
+  <rect x="40" y="332" width="1445" height="182" fill="#FAF5FF" rx="10" stroke="#D6BCFA" stroke-width="1.5"/>
+  <text x="750" y="352" text-anchor="middle" fill="#553C9A" font-size="11" font-weight="700" letter-spacing="1">DATA LAYER</text>
+
+  <!-- MySQL Box -->
+  <rect x="60" y="360" width="440" height="144" fill="#553C9A" rx="10"/>
+  <text x="280" y="382" text-anchor="middle" fill="white" font-size="13" font-weight="700">🗄 MySQL Database</text>
+  <text x="280" y="398" text-anchor="middle" fill="#D6BCFA" font-size="9">Operational / Transactional Data</text>
+
+  <!-- MySQL tables -->
+  <rect x="75" y="407" width="115" height="85" fill="#44337A" rx="6"/>
+  <text x="133" y="423" text-anchor="middle" fill="white" font-size="10" font-weight="700">users</text>
+  <text x="133" y="438" text-anchor="middle" fill="#D6BCFA" font-size="8">id · full_name</text>
+  <text x="133" y="451" text-anchor="middle" fill="#D6BCFA" font-size="8">email · password_hash</text>
+  <text x="133" y="464" text-anchor="middle" fill="#D6BCFA" font-size="8">photo_url</text>
+  <text x="133" y="477" text-anchor="middle" fill="#D6BCFA" font-size="8">created_at</text>
+  <text x="133" y="488" text-anchor="middle" fill="#9AE6B4" font-size="8">scrypt hashed</text>
+
+  <rect x="200" y="407" width="115" height="85" fill="#44337A" rx="6"/>
+  <text x="258" y="423" text-anchor="middle" fill="white" font-size="10" font-weight="700">otp_codes</text>
+  <text x="258" y="438" text-anchor="middle" fill="#D6BCFA" font-size="8">email · purpose</text>
+  <text x="258" y="451" text-anchor="middle" fill="#D6BCFA" font-size="8">otp_hash (SHA-256)</text>
+  <text x="258" y="464" text-anchor="middle" fill="#D6BCFA" font-size="8">expires_at (10 min)</text>
+  <text x="258" y="477" text-anchor="middle" fill="#D6BCFA" font-size="8">used · payload_json</text>
+  <text x="258" y="488" text-anchor="middle" fill="#9AE6B4" font-size="8">signup · reset</text>
+
+  <rect x="325" y="407" width="160" height="85" fill="#44337A" rx="6"/>
+  <text x="405" y="423" text-anchor="middle" fill="white" font-size="10" font-weight="700">app_config</text>
+  <text x="405" y="438" text-anchor="middle" fill="#D6BCFA" font-size="8">openai_model · ai_provider</text>
+  <text x="405" y="451" text-anchor="middle" fill="#D6BCFA" font-size="8">rag_enabled · rag_top_k</text>
+  <text x="405" y="464" text-anchor="middle" fill="#D6BCFA" font-size="8">supabase_url · supabase_key</text>
+  <text x="405" y="477" text-anchor="middle" fill="#D6BCFA" font-size="8">ftjob_id · ft_model</text>
+  <text x="405" y="488" text-anchor="middle" fill="#9AE6B4" font-size="8">single-row live config</text>
+
+  <!-- chat_messages + training_examples below -->
+  <rect x="75" y="500" width="190" height="30" fill="#322659" rx="5"/>
+  <text x="170" y="512" text-anchor="middle" fill="white" font-size="9" font-weight="700">chat_messages</text>
+  <text x="170" y="524" text-anchor="middle" fill="#D6BCFA" font-size="8">session_id · role · content · rag_used · confidence_label · faithfulness_score · sources</text>
+
+  <rect x="275" y="500" width="210" height="30" fill="#322659" rx="5"/>
+  <text x="380" y="512" text-anchor="middle" fill="white" font-size="9" font-weight="700">training_examples</text>
+  <text x="380" y="524" text-anchor="middle" fill="#D6BCFA" font-size="8">system_prompt · user_input · assistant_output · enabled</text>
+
+  <!-- Supabase Box -->
+  <rect x="520" y="360" width="480" height="144" fill="#2C7A7B" rx="10"/>
+  <text x="760" y="382" text-anchor="middle" fill="white" font-size="13" font-weight="700">🔷 Supabase — PostgreSQL + pgvector</text>
+  <text x="760" y="398" text-anchor="middle" fill="#81E6D9" font-size="9">Vector Store · RAG Analytics</text>
+
+  <rect x="535" y="407" width="220" height="85" fill="#234E52" rx="6"/>
+  <text x="645" y="423" text-anchor="middle" fill="white" font-size="10" font-weight="700">medical_documents</text>
+  <text x="645" y="438" text-anchor="middle" fill="#81E6D9" font-size="8">title · chunk_id · content</text>
+  <text x="645" y="451" text-anchor="middle" fill="#81E6D9" font-size="8">embedding VECTOR(768)</text>
+  <text x="645" y="464" text-anchor="middle" fill="#81E6D9" font-size="8">metadata (section · entities)</text>
+  <text x="645" y="477" text-anchor="middle" fill="#81E6D9" font-size="8">IVFFlat index (cosine)</text>
+  <text x="645" y="488" text-anchor="middle" fill="#FBD38D" font-size="8">pgvector extension</text>
+
+  <rect x="765" y="407" width="220" height="85" fill="#234E52" rx="6"/>
+  <text x="875" y="423" text-anchor="middle" fill="white" font-size="10" font-weight="700">chat_history</text>
+  <text x="875" y="438" text-anchor="middle" fill="#81E6D9" font-size="8">query · rewritten_query · answer</text>
+  <text x="875" y="451" text-anchor="middle" fill="#81E6D9" font-size="8">faithfulness_score · hallu_score</text>
+  <text x="875" y="464" text-anchor="middle" fill="#81E6D9" font-size="8">sources (jsonb) · confidence</text>
+  <text x="875" y="477" text-anchor="middle" fill="#81E6D9" font-size="8">llm_used · embed_via</text>
+  <text x="875" y="488" text-anchor="middle" fill="#FBD38D" font-size="8">RAG analytics store</text>
+
+  <!-- RPC function -->
+  <rect x="535" y="498" width="450" height="32" fill="#1D4044" rx="5"/>
+  <text x="760" y="510" text-anchor="middle" fill="white" font-size="9" font-weight="700">RPC: match_medical_documents(query_embedding vector, match_count int)</text>
+  <text x="760" y="523" text-anchor="middle" fill="#81E6D9" font-size="8">Returns: id · title · chunk_id · content · metadata · similarity — fast approximate nearest neighbour</text>
+
+  <!-- AI Providers Box -->
+  <rect x="1020" y="360" width="455" height="144" fill="#7B341E" rx="10"/>
+  <text x="1248" y="382" text-anchor="middle" fill="white" font-size="13" font-weight="700">🤖 AI Providers</text>
+  <text x="1248" y="397" text-anchor="middle" fill="#FBD38D" font-size="9">Switchable via Admin Panel — no restart needed</text>
+
+  <!-- OpenAI -->
+  <rect x="1035" y="405" width="200" height="90" fill="#744210" rx="6"/>
+  <text x="1135" y="423" text-anchor="middle" fill="white" font-size="11" font-weight="700">☁ OpenAI (Cloud)</text>
+  <text x="1135" y="440" text-anchor="middle" fill="#FBD38D" font-size="9">Chat: GPT-4o-mini / gpt-4o</text>
+  <text x="1135" y="455" text-anchor="middle" fill="#FBD38D" font-size="9">Fine-tuned: ft:gpt-4o-mini:...</text>
+  <text x="1135" y="470" text-anchor="middle" fill="#FBD38D" font-size="9">Embed: text-embedding-3-small</text>
+  <text x="1135" y="485" text-anchor="middle" fill="#FBD38D" font-size="9">768 dimensions</text>
+  <text x="1135" y="491" text-anchor="middle" fill="#9AE6B4" font-size="8">Fine-Tuning API: /v1/fine_tuning/jobs</text>
+
+  <!-- Ollama -->
+  <rect x="1255" y="405" width="200" height="90" fill="#5F370E" rx="6"/>
+  <text x="1355" y="423" text-anchor="middle" fill="white" font-size="11" font-weight="700">🏠 Ollama (Local)</text>
+  <text x="1355" y="440" text-anchor="middle" fill="#FBD38D" font-size="9">Chat: llama3.1 · mistral · phi3</text>
+  <text x="1355" y="455" text-anchor="middle" fill="#FBD38D" font-size="9">Embed: nomic-embed-text</text>
+  <text x="1355" y="470" text-anchor="middle" fill="#FBD38D" font-size="9">768 dimensions (compatible)</text>
+  <text x="1355" y="485" text-anchor="middle" fill="#FBD38D" font-size="9">localhost:11434</text>
+  <text x="1355" y="491" text-anchor="middle" fill="#9AE6B4" font-size="8">Free · Private · Offline capable</text>
+
+  <!-- ══════════════════════════════════════════
+       RAG PIPELINE
+  ══════════════════════════════════════════ -->
+  <rect x="40" y="522" width="1445" height="272" fill="#FFFAF0" rx="10" stroke="#F6AD55" stroke-width="1.5"/>
+  <text x="750" y="541" text-anchor="middle" fill="#C05621" font-size="11" font-weight="700" letter-spacing="1">RAG PIPELINE — Retrieval-Augmented Generation</text>
+
+  <!-- Step boxes for RAG pipeline -->
+  <!-- INGESTION side (top half) -->
+  <text x="370" y="562" text-anchor="middle" fill="#744210" font-size="10" font-weight="700">⬇ INGESTION (Admin · one time)</text>
+
+  <!-- Step A -->
+  <rect x="55" y="570" width="130" height="76" fill="#C05621" rx="8"/>
+  <text x="120" y="588" text-anchor="middle" fill="white" font-size="10" font-weight="700">1. Upload PDF</text>
+  <text x="120" y="603" text-anchor="middle" fill="#FEEBC8" font-size="8">Admin → Admin Panel</text>
+  <text x="120" y="617" text-anchor="middle" fill="#FEEBC8" font-size="8">→ Documents tab</text>
+  <text x="120" y="631" text-anchor="middle" fill="#FEEBC8" font-size="8">busboy parses</text>
+  <text x="120" y="643" text-anchor="middle" fill="#FEEBC8" font-size="8">multipart upload</text>
+
+  <line x1="185" y1="608" x2="200" y2="608" stroke="#C05621" stroke-width="2" marker-end="url(#arr-orange)"/>
+
+  <!-- Step B -->
+  <rect x="200" y="570" width="130" height="76" fill="#C05621" rx="8"/>
+  <text x="265" y="588" text-anchor="middle" fill="white" font-size="10" font-weight="700">2. Extract Text</text>
+  <text x="265" y="603" text-anchor="middle" fill="#FEEBC8" font-size="8">pdf-parse library</text>
+  <text x="265" y="617" text-anchor="middle" fill="#FEEBC8" font-size="8">maskPii() removes</text>
+  <text x="265" y="631" text-anchor="middle" fill="#FEEBC8" font-size="8">phone · NHS numbers</text>
+  <text x="265" y="643" text-anchor="middle" fill="#FEEBC8" font-size="8">dates · emails</text>
+
+  <line x1="330" y1="608" x2="345" y2="608" stroke="#C05621" stroke-width="2" marker-end="url(#arr-orange)"/>
+
+  <!-- Step C -->
+  <rect x="345" y="570" width="140" height="76" fill="#C05621" rx="8"/>
+  <text x="415" y="588" text-anchor="middle" fill="white" font-size="10" font-weight="700">3. Chunk Text</text>
+  <text x="415" y="603" text-anchor="middle" fill="#FEEBC8" font-size="8">chunkText(800, 100)</text>
+  <text x="415" y="617" text-anchor="middle" fill="#FEEBC8" font-size="8">800 chars per chunk</text>
+  <text x="415" y="631" text-anchor="middle" fill="#FEEBC8" font-size="8">100 char overlap</text>
+  <text x="415" y="643" text-anchor="middle" fill="#FEEBC8" font-size="8">splitRecursive()</text>
+
+  <line x1="485" y1="608" x2="500" y2="608" stroke="#C05621" stroke-width="2" marker-end="url(#arr-orange)"/>
+
+  <!-- Step D -->
+  <rect x="500" y="570" width="150" height="76" fill="#C05621" rx="8"/>
+  <text x="575" y="588" text-anchor="middle" fill="white" font-size="10" font-weight="700">4. Embed Chunks</text>
+  <text x="575" y="603" text-anchor="middle" fill="#FEEBC8" font-size="8">batchEmbedTexts()</text>
+  <text x="575" y="617" text-anchor="middle" fill="#FEEBC8" font-size="8">OpenAI text-embedding</text>
+  <text x="575" y="631" text-anchor="middle" fill="#FEEBC8" font-size="8">OR nomic-embed-text</text>
+  <text x="575" y="643" text-anchor="middle" fill="#FEEBC8" font-size="8">→ 768 numbers each</text>
+
+  <line x1="650" y1="608" x2="665" y2="608" stroke="#C05621" stroke-width="2" marker-end="url(#arr-orange)"/>
+
+  <!-- Step E -->
+  <rect x="665" y="570" width="140" height="76" fill="#C05621" rx="8"/>
+  <text x="735" y="588" text-anchor="middle" fill="white" font-size="10" font-weight="700">5. Store Vectors</text>
+  <text x="735" y="603" text-anchor="middle" fill="#FEEBC8" font-size="8">batchUpsertChunks()</text>
+  <text x="735" y="617" text-anchor="middle" fill="#FEEBC8" font-size="8">Supabase upsert</text>
+  <text x="735" y="631" text-anchor="middle" fill="#FEEBC8" font-size="8">UNIQUE(title, chunk_id)</text>
+  <text x="735" y="643" text-anchor="middle" fill="#FEEBC8" font-size="8">IVFFlat index built</text>
+
+  <!-- RETRIEVAL side (bottom half) -->
+  <text x="370" y="665" text-anchor="middle" fill="#744210" font-size="10" font-weight="700">⬇ RETRIEVAL (Every Chat Message)</text>
+
+  <!-- Step 1 retrieval -->
+  <rect x="55" y="673" width="130" height="110" fill="#DD6B20" rx="8"/>
+  <text x="120" y="691" text-anchor="middle" fill="white" font-size="10" font-weight="700">1. Rewrite Query</text>
+  <text x="120" y="706" text-anchor="middle" fill="#FEEBC8" font-size="8">rewriteQuery()</text>
+  <text x="120" y="720" text-anchor="middle" fill="#FEEBC8" font-size="8">"what is prodrome?"</text>
+  <text x="120" y="734" text-anchor="middle" fill="white" font-size="8">↓</text>
+  <text x="120" y="748" text-anchor="middle" fill="#FEEBC8" font-size="8">"premonitory prodromal</text>
+  <text x="120" y="762" text-anchor="middle" fill="#FEEBC8" font-size="8">phase migraine precursor</text>
+  <text x="120" y="776" text-anchor="middle" fill="#FEEBC8" font-size="8">symptoms fatigue mood"</text>
+
+  <line x1="185" y1="728" x2="200" y2="728" stroke="#DD6B20" stroke-width="2" marker-end="url(#arr-orange)"/>
+
+  <!-- Step 2 -->
+  <rect x="200" y="673" width="140" height="110" fill="#DD6B20" rx="8"/>
+  <text x="270" y="691" text-anchor="middle" fill="white" font-size="10" font-weight="700">2. 4 Query Variants</text>
+  <text x="270" y="706" text-anchor="middle" fill="#FEEBC8" font-size="8">generateQueryVariants()</text>
+  <text x="270" y="720" text-anchor="middle" fill="#FEEBC8" font-size="8">Original + 3 LLM versions</text>
+  <text x="270" y="734" text-anchor="middle" fill="#FEEBC8" font-size="8">Different clinical angles</text>
+  <text x="270" y="748" text-anchor="middle" fill="#FEEBC8" font-size="8">→ catches more chunks</text>
+  <text x="270" y="762" text-anchor="middle" fill="#FEEBC8" font-size="8">that one search misses</text>
+
+  <line x1="340" y1="728" x2="355" y2="728" stroke="#DD6B20" stroke-width="2" marker-end="url(#arr-orange)"/>
+
+  <!-- Step 3 -->
+  <rect x="355" y="673" width="150" height="110" fill="#DD6B20" rx="8"/>
+  <text x="430" y="691" text-anchor="middle" fill="white" font-size="10" font-weight="700">3. HyDE Embed</text>
+  <text x="430" y="706" text-anchor="middle" fill="#FEEBC8" font-size="8">hydeEmbed()</text>
+  <text x="430" y="720" text-anchor="middle" fill="#FEEBC8" font-size="8">LLM writes hypothetical</text>
+  <text x="430" y="734" text-anchor="middle" fill="#FEEBC8" font-size="8">answer paragraph first</text>
+  <text x="430" y="748" text-anchor="middle" fill="#FEEBC8" font-size="8">Embed the answer, not</text>
+  <text x="430" y="762" text-anchor="middle" fill="#FEEBC8" font-size="8">the question → closer</text>
+  <text x="430" y="776" text-anchor="middle" fill="#FEEBC8" font-size="8">to real doc vectors</text>
+
+  <line x1="505" y1="728" x2="520" y2="728" stroke="#DD6B20" stroke-width="2" marker-end="url(#arr-orange)"/>
+
+  <!-- Step 4 -->
+  <rect x="520" y="673" width="150" height="110" fill="#DD6B20" rx="8"/>
+  <text x="595" y="691" text-anchor="middle" fill="white" font-size="10" font-weight="700">4. Vector Search</text>
+  <text x="595" y="706" text-anchor="middle" fill="#FEEBC8" font-size="8">match_medical_documents</text>
+  <text x="595" y="720" text-anchor="middle" fill="#FEEBC8" font-size="8">Cosine similarity in</text>
+  <text x="595" y="734" text-anchor="middle" fill="#FEEBC8" font-size="8">pgvector (Supabase)</text>
+  <text x="595" y="748" text-anchor="middle" fill="#FEEBC8" font-size="8">topK×3 candidates per</text>
+  <text x="595" y="762" text-anchor="middle" fill="#FEEBC8" font-size="8">query → merged by</text>
+  <text x="595" y="776" text-anchor="middle" fill="#FEEBC8" font-size="8">highest similarity</text>
+
+  <line x1="670" y1="728" x2="685" y2="728" stroke="#DD6B20" stroke-width="2" marker-end="url(#arr-orange)"/>
+
+  <!-- Step 5 -->
+  <rect x="685" y="673" width="150" height="110" fill="#DD6B20" rx="8"/>
+  <text x="760" y="691" text-anchor="middle" fill="white" font-size="10" font-weight="700">5. BM25 Re-rank</text>
+  <text x="760" y="706" text-anchor="middle" fill="#FEEBC8" font-size="8">bm25Score()</text>
+  <text x="760" y="720" text-anchor="middle" fill="#FEEBC8" font-size="8">Keyword frequency +</text>
+  <text x="760" y="734" text-anchor="middle" fill="#FEEBC8" font-size="8">inverse doc frequency</text>
+  <text x="760" y="748" text-anchor="middle" fill="#FEEBC8" font-size="8">hybridScore =</text>
+  <text x="760" y="762" text-anchor="middle" fill="#FEEBC8" font-size="8">65% vector sim</text>
+  <text x="760" y="776" text-anchor="middle" fill="#FEEBC8" font-size="8">+ 35% BM25</text>
+
+  <!-- Scoring section (right side of retrieval) -->
+  <!-- Scoring boxes -->
+  <text x="1100" y="562" text-anchor="middle" fill="#744210" font-size="10" font-weight="700">⬇ SCORING</text>
+
+  <rect x="880" y="570" width="180" height="76" fill="#9C4221" rx="8"/>
+  <text x="970" y="588" text-anchor="middle" fill="white" font-size="10" font-weight="700">Faithfulness Score</text>
+  <text x="970" y="604" text-anchor="middle" fill="#FEEBC8" font-size="8">faithfulnessScore()</text>
+  <text x="970" y="618" text-anchor="middle" fill="#FEEBC8" font-size="8">answer_tokens ∩ context</text>
+  <text x="970" y="632" text-anchor="middle" fill="#FEEBC8" font-size="8">÷ answer_tokens × 1.35</text>
+  <text x="970" y="643" text-anchor="middle" fill="#FBD38D" font-size="8">0.0 = hallucinated · 1.0 = grounded</text>
+
+  <rect x="1080" y="570" width="180" height="76" fill="#9C4221" rx="8"/>
+  <text x="1170" y="588" text-anchor="middle" fill="white" font-size="10" font-weight="700">Hallucination Judge</text>
+  <text x="1170" y="604" text-anchor="middle" fill="#FEEBC8" font-size="8">llmHallucinationCheck()</text>
+  <text x="1170" y="618" text-anchor="middle" fill="#FEEBC8" font-size="8">faith ≥ 0.75 → SKIP</text>
+  <text x="1170" y="630" text-anchor="middle" fill="#FEEBC8" font-size="8">(faith_override · hallu=0)</text>
+  <text x="1170" y="643" text-anchor="middle" fill="#FBD38D" font-size="8">Else: LLM-as-judge prompt</text>
+
+  <rect x="1280" y="570" width="185" height="76" fill="#9C4221" rx="8"/>
+  <text x="1372" y="588" text-anchor="middle" fill="white" font-size="10" font-weight="700">Confidence Band</text>
+  <text x="1372" y="604" text-anchor="middle" fill="#FEEBC8" font-size="8">confidenceBand()</text>
+  <text x="1372" y="618" text-anchor="middle" fill="#FEEBC8" font-size="8">faith×0.45 + (1-hallu)×0.35</text>
+  <text x="1372" y="630" text-anchor="middle" fill="#FEEBC8" font-size="8">+ relevance×0.20</text>
+  <text x="1372" y="643" text-anchor="middle" fill="#FBD38D" font-size="8">HIGH ≥0.75 · MED ≥0.55 · LOW ≥0.35</text>
+
+  <!-- Self-Verify -->
+  <rect x="880" y="673" width="180" height="110" fill="#9C4221" rx="8"/>
+  <text x="970" y="691" text-anchor="middle" fill="white" font-size="10" font-weight="700">Self-Verify Loop</text>
+  <text x="970" y="707" text-anchor="middle" fill="#FEEBC8" font-size="8">selfVerifyGenerate()</text>
+  <text x="970" y="721" text-anchor="middle" fill="#FEEBC8" font-size="8">Iter 1: Generate answer</text>
+  <text x="970" y="735" text-anchor="middle" fill="#FEEBC8" font-size="8">Score faithfulness</text>
+  <text x="970" y="749" text-anchor="middle" fill="#FEEBC8" font-size="8">faith > 0.35 → done</text>
+  <text x="970" y="763" text-anchor="middle" fill="#FEEBC8" font-size="8">Iter 2: Add repair note</text>
+  <text x="970" y="777" text-anchor="middle" fill="#FEEBC8" font-size="8">Return best answer</text>
+
+  <!-- Safety Filter -->
+  <rect x="1080" y="673" width="180" height="110" fill="#9C4221" rx="8"/>
+  <text x="1170" y="691" text-anchor="middle" fill="white" font-size="10" font-weight="700">Safety Filter</text>
+  <text x="1170" y="707" text-anchor="middle" fill="#FEEBC8" font-size="8">safetyCheck()</text>
+  <text x="1170" y="721" text-anchor="middle" fill="#FEEBC8" font-size="8">_PRESCRIPTIVE_RX</text>
+  <text x="1170" y="735" text-anchor="middle" fill="#FEEBC8" font-size="8">Blocks answers with</text>
+  <text x="1170" y="749" text-anchor="middle" fill="#FEEBC8" font-size="8">specific dosage advice</text>
+  <text x="1170" y="763" text-anchor="middle" fill="#FBD38D" font-size="8">Replaces with safety msg</text>
+  <text x="1170" y="777" text-anchor="middle" fill="#FEEBC8" font-size="8">halluScore never blocks</text>
+
+  <!-- User Output -->
+  <rect x="1280" y="673" width="185" height="110" fill="#276749" rx="8"/>
+  <text x="1372" y="691" text-anchor="middle" fill="white" font-size="10" font-weight="700">User Sees:</text>
+  <text x="1372" y="707" text-anchor="middle" fill="#9AE6B4" font-size="8">Answer text</text>
+  <text x="1372" y="721" text-anchor="middle" fill="#9AE6B4" font-size="8">🟢 Confidence: HIGH</text>
+  <text x="1372" y="735" text-anchor="middle" fill="#9AE6B4" font-size="8">📄 Sources: Migraine Rev.</text>
+  <text x="1372" y="749" text-anchor="middle" fill="#9AE6B4" font-size="8">✅ Faithful: 87%</text>
+  <text x="1372" y="763" text-anchor="middle" fill="#9AE6B4" font-size="8">🤖 OpenAI · 3.2s</text>
+  <text x="1372" y="777" text-anchor="middle" fill="#9AE6B4" font-size="8">Saved MySQL + Supabase</text>
+
+  <!-- ══════════════════════════════════════════
+       FINE-TUNING PIPELINE
+  ══════════════════════════════════════════ -->
+  <rect x="40" y="802" width="1445" height="252" fill="#E6FFFA" rx="10" stroke="#81E6D9" stroke-width="1.5"/>
+  <text x="750" y="822" text-anchor="middle" fill="#234E52" font-size="11" font-weight="700" letter-spacing="1">FINE-TUNING PIPELINE — Teaching the Model HOW to Respond (Not What to Know)</text>
+
+  <!-- Step 1 -->
+  <rect x="60" y="833" width="205" height="105" fill="#2C7A7B" rx="8"/>
+  <text x="163" y="851" text-anchor="middle" fill="white" font-size="11" font-weight="700">1. Write Examples</text>
+  <text x="163" y="868" text-anchor="middle" fill="#81E6D9" font-size="8">Admin → Training tab</text>
+  <text x="163" y="882" text-anchor="middle" fill="#81E6D9" font-size="8">Add Q&amp;A pairs:</text>
+  <text x="163" y="896" text-anchor="middle" fill="#81E6D9" font-size="8">• System prompt (optional)</text>
+  <text x="163" y="910" text-anchor="middle" fill="#81E6D9" font-size="8">• User message</text>
+  <text x="163" y="924" text-anchor="middle" fill="#81E6D9" font-size="8">• Ideal assistant reply</text>
+  <text x="163" y="934" text-anchor="middle" fill="#FBD38D" font-size="8">94 examples pre-seeded</text>
+
+  <line x1="265" y1="885" x2="280" y2="885" stroke="#2C7A7B" stroke-width="2" marker-end="url(#arr-teal)"/>
+
+  <!-- Step 2 -->
+  <rect x="280" y="833" width="205" height="105" fill="#2C7A7B" rx="8"/>
+  <text x="383" y="851" text-anchor="middle" fill="white" font-size="11" font-weight="700">2. Build JSONL</text>
+  <text x="383" y="868" text-anchor="middle" fill="#81E6D9" font-size="8">buildJsonl(examples)</text>
+  <text x="383" y="882" text-anchor="middle" fill="#81E6D9" font-size="8">Each row →</text>
+  <text x="383" y="896" text-anchor="middle" fill="#81E6D9" font-size="8">{messages:[</text>
+  <text x="383" y="910" text-anchor="middle" fill="#81E6D9" font-size="8">  {role:system,...},</text>
+  <text x="383" y="922" text-anchor="middle" fill="#81E6D9" font-size="8">  {role:user,...},</text>
+  <text x="383" y="934" text-anchor="middle" fill="#81E6D9" font-size="8">  {role:assistant,...}]}</text>
+
+  <line x1="485" y1="885" x2="500" y2="885" stroke="#2C7A7B" stroke-width="2" marker-end="url(#arr-teal)"/>
+
+  <!-- Step 3 -->
+  <rect x="500" y="833" width="205" height="105" fill="#2C7A7B" rx="8"/>
+  <text x="603" y="851" text-anchor="middle" fill="white" font-size="11" font-weight="700">3. Upload to OpenAI</text>
+  <text x="603" y="868" text-anchor="middle" fill="#81E6D9" font-size="8">uploadTrainingFile()</text>
+  <text x="603" y="882" text-anchor="middle" fill="#81E6D9" font-size="8">POST /v1/files</text>
+  <text x="603" y="896" text-anchor="middle" fill="#81E6D9" font-size="8">purpose: fine-tune</text>
+  <text x="603" y="910" text-anchor="middle" fill="#81E6D9" font-size="8">Returns: file-abc123</text>
+  <text x="603" y="924" text-anchor="middle" fill="#FBD38D" font-size="8">Min 10 enabled examples</text>
+
+  <line x1="705" y1="885" x2="720" y2="885" stroke="#2C7A7B" stroke-width="2" marker-end="url(#arr-teal)"/>
+
+  <!-- Step 4 -->
+  <rect x="720" y="833" width="205" height="105" fill="#2C7A7B" rx="8"/>
+  <text x="823" y="851" text-anchor="middle" fill="white" font-size="11" font-weight="700">4. Create Job</text>
+  <text x="823" y="868" text-anchor="middle" fill="#81E6D9" font-size="8">createFineTuningJob()</text>
+  <text x="823" y="882" text-anchor="middle" fill="#81E6D9" font-size="8">POST /v1/fine_tuning/jobs</text>
+  <text x="823" y="896" text-anchor="middle" fill="#81E6D9" font-size="8">base: gpt-4o-mini</text>
+  <text x="823" y="910" text-anchor="middle" fill="#81E6D9" font-size="8">suffix: medicompanion</text>
+  <text x="823" y="922" text-anchor="middle" fill="#81E6D9" font-size="8">ftjob_id → MySQL</text>
+  <text x="823" y="934" text-anchor="middle" fill="#FBD38D" font-size="8">15–60 min on OpenAI</text>
+
+  <line x1="925" y1="885" x2="940" y2="885" stroke="#2C7A7B" stroke-width="2" marker-end="url(#arr-teal)"/>
+
+  <!-- Step 5 -->
+  <rect x="940" y="833" width="205" height="105" fill="#2C7A7B" rx="8"/>
+  <text x="1043" y="851" text-anchor="middle" fill="white" font-size="11" font-weight="700">5. Poll Status</text>
+  <text x="1043" y="868" text-anchor="middle" fill="#81E6D9" font-size="8">GET /admin/training/status</text>
+  <text x="1043" y="882" text-anchor="middle" fill="#81E6D9" font-size="8">validating → queued</text>
+  <text x="1043" y="896" text-anchor="middle" fill="#81E6D9" font-size="8">→ running → succeeded</text>
+  <text x="1043" y="910" text-anchor="middle" fill="#81E6D9" font-size="8">On success: ft_model</text>
+  <text x="1043" y="924" text-anchor="middle" fill="#81E6D9" font-size="8">saved to MySQL</text>
+  <text x="1043" y="934" text-anchor="middle" fill="#FBD38D" font-size="8">OpenAI emails on complete</text>
+
+  <line x1="1145" y1="885" x2="1160" y2="885" stroke="#2C7A7B" stroke-width="2" marker-end="url(#arr-teal)"/>
+
+  <!-- Step 6 -->
+  <rect x="1160" y="833" width="305" height="105" fill="#234E52" rx="8"/>
+  <text x="1313" y="851" text-anchor="middle" fill="white" font-size="11" font-weight="700">6. Apply Fine-Tuned Model</text>
+  <text x="1313" y="868" text-anchor="middle" fill="#81E6D9" font-size="8">POST /admin/training/apply</text>
+  <text x="1313" y="882" text-anchor="middle" fill="#81E6D9" font-size="8">UPDATE app_config SET openai_model =</text>
+  <text x="1313" y="896" text-anchor="middle" fill="#FBD38D" font-size="8">'ft:gpt-4o-mini:medicompanion:xxx'</text>
+  <text x="1313" y="910" text-anchor="middle" fill="#81E6D9" font-size="8">All new chats use fine-tuned model</text>
+  <text x="1313" y="924" text-anchor="middle" fill="#81E6D9" font-size="8">Switch back: Config tab → type gpt-4o-mini</text>
+  <text x="1313" y="934" text-anchor="middle" fill="#9AE6B4" font-size="8">No restart needed — config read live per request</text>
+
+  <!-- What Fine-tuning teaches vs RAG -->
+  <rect x="60" y="950" width="1445" height="62" fill="#1D4044" rx="8"/>
+  <text x="400" y="972" text-anchor="middle" fill="#81E6D9" font-size="10" font-weight="700">FINE-TUNING teaches HOW to respond</text>
+  <text x="400" y="990" text-anchor="middle" fill="#81E6D9" font-size="9">Tone · Format · Refusal style · Disclaimer placement · Medical terminology · Response length</text>
+  <text x="400" y="1005" text-anchor="middle" fill="#FBD38D" font-size="9">Data: Q&amp;A pairs written by admin → stored in MySQL training_examples</text>
+  <line x1="730" y1="955" x2="730" y2="1012" stroke="#4A5568" stroke-width="1"/>
+  <text x="1100" y="972" text-anchor="middle" fill="#9AE6B4" font-size="10" font-weight="700">RAG teaches WHAT to know</text>
+  <text x="1100" y="990" text-anchor="middle" fill="#9AE6B4" font-size="9">Medical facts · Specific guidelines · Current research · Your protocols</text>
+  <text x="1100" y="1005" text-anchor="middle" fill="#FBD38D" font-size="9">Data: PDFs uploaded by admin → chunked → embedded → stored in Supabase</text>
+
+  <!-- ══════════════════════════════════════════
+       ARROW MARKERS
+  ══════════════════════════════════════════ -->
+  <defs>
+    <marker id="arr-blue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#3182CE"/>
+    </marker>
+    <marker id="arr-orange" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#C05621"/>
+    </marker>
+    <marker id="arr-teal" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#2C7A7B"/>
+    </marker>
+  </defs>
+
+  <!-- Arrows from Backend to Data layer -->
+  <line x1="170" y1="322" x2="280" y2="360" stroke="#553C9A" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arr-blue)"/>
+  <line x1="410" y1="322" x2="760" y2="360" stroke="#2C7A7B" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arr-teal)"/>
+  <line x1="650" y1="322" x2="760" y2="360" stroke="#2C7A7B" stroke-width="1.5" stroke-dasharray="4,2"/>
+  <line x1="895" y1="322" x2="1135" y2="360" stroke="#7B341E" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arr-orange)"/>
+  <line x1="1245" y1="322" x2="1248" y2="360" stroke="#7B341E" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arr-orange)"/>
+
+  <!-- Connecting arrow between ingestion and retrieval in RAG -->
+  <line x1="805" y1="608" x2="840" y2="608" stroke="#C05621" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="835" y="600" fill="#744210" font-size="8">stored</text>
+
+</svg>

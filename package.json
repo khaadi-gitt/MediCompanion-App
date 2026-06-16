@@ -1,0 +1,71 @@
+{
+  "name": "medicompanionapp",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "api:start": "node backend/server.js",
+    "web:dev": "expo start --web --port 19006",
+    "web:build": "expo export --platform web",
+    "electron:main": "wait-on tcp:19006 && cross-env ELECTRON_START_URL=http://localhost:19006 electron electron/main.js",
+    "desktop": "concurrently -k -n WEB,ELECTRON -c cyan,magenta \"npm:electron:main\" \"npm:web:dev\"",
+    "dev:mobile+api": "concurrently -k -n API,EXPO -c green,cyan \"npm:api:start\" \"expo start --lan\"",
+    "electron:pack": "npm run web:build && electron-builder --dir",
+    "electron:dist": "npm run web:build && electron-builder"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
+    "@supabase/supabase-js": "^2.52.1",
+    "busboy": "^1.6.0",
+    "expo": "~54.0.35",
+    "expo-auth-session": "~7.0.11",
+    "expo-image-picker": "~17.0.8",
+    "expo-print": "~15.0.8",
+    "expo-sharing": "~14.0.8",
+    "expo-status-bar": "~3.0.9",
+    "expo-web-browser": "~15.0.11",
+    "mysql2": "^3.22.5",
+    "nodemailer": "^8.0.10",
+    "pdf-parse": "^2.4.5",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-web": "^0.21.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.0",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^37.0.0",
+    "electron-builder": "^26.0.12",
+    "typescript": "~5.9.2",
+    "wait-on": "^8.0.5"
+  },
+  "private": true,
+  "build": {
+    "appId": "com.medicompanion.desktop",
+    "productName": "MediCompanion",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.js"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

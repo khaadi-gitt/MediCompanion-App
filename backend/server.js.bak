@@ -1,0 +1,2963 @@
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const busboyLib = require('busboy');
+// pdf-parse v2.x — class-based API: new PDFParse({ data: buffer })
+const { PDFParse } = require('pdf-parse');
+
+loadEnvFile(path.join(__dirname, '.env'));
+
+const PORT = Number(process.env.PORT || 5050);
+const ADMIN_SECRET   = process.env.ADMIN_SECRET   || '';
+const ADMIN_EMAIL    = (process.env.ADMIN_EMAIL    || '').trim().toLowerCase();
+const ADMIN_PASSWORD = (process.env.ADMIN_PASSWORD || '').trim();
+const MYSQL_HOST = String(process.env.MYSQL_HOST || '').trim();
+const MYSQL_PORT = Number(process.env.MYSQL_PORT || 3306);
+const MYSQL_USER = String(process.env.MYSQL_USER || '').trim();
+const MYSQL_PASSWORD = String(process.env.MYSQL_PASSWORD || '').trim();
+const MYSQL_DATABASE = String(process.env.MYSQL_DATABASE || '').trim();
+const SMTP_HOST = String(process.env.SMTP_HOST || 'smtp.hostinger.com').trim();
+const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
+const SMTP_SECURE = String(process.env.SMTP_SECURE || 'true').trim().toLowerCase() !== 'false';
+const SMTP_USER = String(process.env.SMTP_USER || '').trim();
+const SMTP_PASS = String(process.env.SMTP_PASS || '').trim();
+const SMTP_FROM = String(process.env.SMTP_FROM || SMTP_USER || '').trim();
+const MIN_TRAINING_EXAMPLES = 8;
+const OTP_EXPIRY_MINUTES = 10;
+const UPLOADS_ROOT = path.join(__dirname, 'uploads');
+const PROFILE_UPLOADS_DIR = path.join(UPLOADS_ROOT, 'profiles');
+const PUBLIC_DIR = path.join(__dirname, 'public');
+
+// RAG — Supabase vector store (fallback to .env values; can also be set via admin /config)
+const SUPABASE_URL_ENV = String(process.env.SUPABASE_URL || '').trim();
+const SUPABASE_SERVICE_KEY_ENV = String(process.env.SUPABASE_SERVICE_KEY || '').trim();
+
+// ─── RAG v2 — constants ────────────────────────────────────────────────────────
+const _STOPWORDS = new Set([
+  'the','a','an','is','are','was','were','be','been','being','have','has',
+  'had','do','does','did','will','would','could','should','may','might',
+  'shall','can','of','in','on','at','to','for','with','by','from','and',
+  'or','but','not','this','that','it','its','as','if','so','than','then',
+  'also','source','1','2','3','4','5','6',
+]);
+
+const _PRESCRIPTIVE_RX = [
+  /\btake\s+\d+\s*(?:mg|ml|tablet|capsule|dose)/i,
+  /\bprescribe\s+\w+\s+(?:to|for)\s+(?:you|the\s+patient)/i,
+  /\byou\s+should\s+take\b/i,
+  /\byour\s+(?:dose|dosage)\s+is\b/i,
+  /\badminister\s+\d+\s*mg\b/i,
+];
+
+const _SECTION_PATTERNS = {
+  abstract:     /\babstract\b/i,
+  introduction: /\bintroduction\b/i,
+  methods:      /\b(?:methods|methodology|materials and methods)\b/i,
+  results:      /\bresults\b/i,
+  discussion:   /\bdiscussion\b/i,
+  conclusion:   /\b(?:conclusion|conclusions|summary)\b/i,
+  references:   /\breferences\b/i,
+};
+
+const _MEDICAL_ENTITY_REGEX =
+  /\b(?:[A-Z][a-z]+(?:\s+[a-z]+){0,2}\s+(?:syndrome|disease|disorder|deficiency|cancer|tumor|virus|infection|phase|stage))\b/g;
+
+// md5(text) → float[]  —  LRU embedding cache (shared across requests)
+const _embedCache = new Map();
+const EMBED_CACHE_MAX = 500;
+// ──────────────────────────────────────────────────────────────────────────────
+
+let mysqlLib = null;
+let mysqlPool = null;
+let nodemailerLib = null;
+let smtpTransporter = null;
+
+const MEDICAL_KEYWORDS = [
+  'health',
+  'medical',
+  'doctor',
+  'medicine',
+  'symptom',
+  'disease',
+  'pain',
+  'fever',
+  'headache',
+  'cough',
+  'cold',
+  'vomit',
+  'nausea',
+  'diabetes',
+  'blood pressure',
+  'bp',
+  'heart',
+  'liver',
+  'kidney',
+  'infection',
+  'allergy',
+  'asthma',
+  'rash',
+  'skin',
+  'stomach',
+  'pregnancy',
+  'tablet',
+  'drug',
+  'treatment',
+];
+
+const COMMON_SYMPTOMS = [
+  'Migraine',
+  'Gastro (Stomach)',
+];
+
+const ALLOWED_TOPIC_KEYWORDS = {
+  migraine: [
+    'migraine',
+    'headache',
+    'head pain',
+    'head ache',
+    'sir dard',
+    'aura',
+    'light sensitivity',
+    'photophobia',
+    'nausea',
+    'throbbing pain',
+  ],
+  gastro: [
+    'gastro',
+    'gastroenteritis',
+    'gastritis',
+    'stomach',
+    'abdomen',
+    'abdominal pain',
+    'acid reflux',
+    'gerd',
+    'heartburn',
+    'ulcer',
+    'diarrhea',
+    'constipation',
+    'bloating',
+    'vomiting',
+  ],
+};
+
+const DIABETES_SCREEN_QUESTIONS = [
+  'Do you often feel very thirsty?',
+  'Do you urinate more often than usual, especially at night?',
+  'Have you noticed unexplained weight loss recently?',
+  'Do you feel unusual fatigue most days?',
+  'Do you have blurred vision at times?',
+  'Do cuts or wounds take longer than usual to heal?',
+  'Do you have a parent or sibling with diabetes?',
+  'Are you physically inactive most days?',
+];
+
+const diabetesScreenSessions = new Map();
+const diabetesOfferSessions = new Map();
+const MIGRAINE_SCREEN_QUESTIONS = [
+  'Do you get moderate to severe headaches that can last for hours?',
+  'Is the pain usually one-sided or throbbing/pulsating?',
+  'Do light or loud sounds make your headache worse?',
+  'Do you feel nausea or vomiting during headache episodes?',
+  'Do routine activities (walking, climbing stairs) worsen the pain?',
+  'Do you sometimes get warning signs (aura), like visual changes, before headache?',
+  'Have these episodes happened repeatedly in the last 3 months?',
+];
+const GASTRO_SCREEN_QUESTIONS = [
+  'Do you often have stomach or upper abdominal discomfort?',
+  'Do you have frequent acidity, heartburn, or sour reflux?',
+  'Do you experience bloating, gas, or indigestion after meals?',
+  'Do you have repeated nausea, vomiting, diarrhea, or constipation?',
+  'Do spicy, oily, or heavy meals trigger your symptoms?',
+  'Have your gastrointestinal symptoms persisted for more than 2 weeks?',
+  'Have you noticed warning signs like blood in stool, black stool, or persistent severe pain?',
+];
+const migraineScreenSessions = new Map();
+const migraineOfferSessions = new Map();
+const gastroScreenSessions = new Map();
+const gastroOfferSessions = new Map();
+
+const server = http.createServer(async (req, res) => {
+  setCorsHeaders(res);
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+  if (req.method === 'GET' && requestUrl.pathname.startsWith('/uploads/')) {
+    const relative = requestUrl.pathname.replace(/^\/+/, '');
+    const candidate = path.normalize(path.join(__dirname, relative));
+    if (!candidate.startsWith(UPLOADS_ROOT)) {
+      json(res, 400, { error: 'Invalid upload path.' });
+      return;
+    }
+    if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) {
+      json(res, 404, { error: 'File not found.' });
+      return;
+    }
+    const ext = String(path.extname(candidate) || '').toLowerCase();
+    const type =
+      ext === '.png'
+        ? 'image/png'
+        : ext === '.webp'
+          ? 'image/webp'
+          : ext === '.gif'
+            ? 'image/gif'
+            : 'image/jpeg';
+    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=31536000, immutable' });
+    fs.createReadStream(candidate).pipe(res);
+    return;
+  }
+
+  if (req.method === 'GET' && requestUrl.pathname === '/api/chat/history') {
+    try {
+      const userId = String(requestUrl.searchParams.get('user_id') || '').trim();
+      if (!userId) {
+        json(res, 400, { error: 'user_id query param is required.' });
+        return;
+      }
+
+      const pool = getMysqlPool();
+      // Get the first user message of each session to use as a title
+      const [rows] = await pool.execute(
+        `select session_id, content
+         from chat_messages
+         where id in (
+           select min(id)
+           from chat_messages
+           where user_id = ?
+           group by session_id
+         ) and role = 'user'`,
+        [userId]
+      );
+
+      const sessions = (Array.isArray(rows) ? rows : []).map(row => ({
+        id: row.session_id,
+        title: row.content ? (row.content.length > 40 ? row.content.slice(0, 37) + '...' : row.content) : 'Untitled Chat',
+      }));
+
+      json(res, 200, { ok: true, sessions });
+    } catch (error) {
+      json(res, 500, { error: error.message || 'Could not fetch chat history.' });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && requestUrl.pathname === '/api/chat/messages') {
+    try {
+      const sessionId = String(requestUrl.searchParams.get('session_id') || '').trim();
+      if (!sessionId) {
+        json(res, 400, { error: 'session_id query param is required.' });
+        return;
+      }
+
+      const pool = getMysqlPool();
+      const [rows] = await pool.execute(
+        `select role, content as text, created_at,
+                rag_used, confidence_label, faithfulness_score,
+                hallu_score, llm_used, sources, total_latency_ms
+         from chat_messages
+         where session_id = ?
+         order by created_at asc`,
+        [sessionId]
+      );
+
+      const messages = (Array.isArray(rows) ? rows : []).map((row, idx) => {
+        const ragUsed = Boolean(Number(row.rag_used));
+        const msg = { id: `m-${idx}`, role: row.role, text: row.text };
+        if (row.role === 'assistant' && ragUsed) {
+          let parsedSources;
+          try { parsedSources = row.sources ? JSON.parse(row.sources) : undefined; } catch { /* skip */ }
+          Object.assign(msg, {
+            ragUsed:           true,
+            confidenceLabel:   row.confidence_label   || undefined,
+            faithfulnessScore: row.faithfulness_score != null ? Number(row.faithfulness_score) : undefined,
+            halluScore:        row.hallu_score        != null ? Number(row.hallu_score)        : undefined,
+            llmUsed:           row.llm_used           || undefined,
+            sources:           parsedSources,
+            totalLatencyMs:    row.total_latency_ms   != null ? Number(row.total_latency_ms)   : undefined,
+          });
+        }
+        return msg;
+      });
+
+      json(res, 200, { ok: true, messages });
+    } catch (error) {
+      json(res, 500, { error: error.message || 'Could not fetch chat messages.' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/auth/signup/send-otp') {
+    try {
+      const body = await readJson(req);
+      const fullName = String(body?.fullName || '').trim();
+      const email = String(body?.email || '').trim().toLowerCase();
+      const password = String(body?.password || '');
+      const photoUrl = String(body?.photoUrl || '').trim();
+
+      if (!fullName || !email || !password) {
+        json(res, 400, { error: 'fullName, email, and password are required.' });
+        return;
+      }
+      if (!isValidEmail(email)) {
+        json(res, 400, { error: 'Invalid email format.' });
+        return;
+      }
+      if (password.length < 6) {
+        json(res, 400, { error: 'Password must be at least 6 characters.' });
+        return;
+      }
+
+      const pool = getMysqlPool();
+      const [existingRows] = await pool.execute('select id from users where email = ? limit 1', [email]);
+      if (Array.isArray(existingRows) && existingRows.length > 0) {
+        json(res, 409, { error: 'Email already registered.' });
+        return;
+      }
+
+      const otp = generateOtpCode();
+      const payload = JSON.stringify({
+        fullName,
+        email,
+        passwordHash: hashPassword(password),
+        photoUrl,
+      });
+      await saveOtpCode({ email, purpose: 'signup', otp, payloadJson: payload });
+      await sendOtpEmail({
+        to: email,
+        subject: 'MediCompanion Signup OTP',
+        otp,
+        note: `Use this OTP to complete your signup. It expires in ${OTP_EXPIRY_MINUTES} minutes.`,
+      });
+
+      json(res, 200, { ok: true, message: 'OTP sent to your email.' });
+    } catch (error) {
+      json(res, 500, { error: error.message || 'Could not send signup OTP.' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/auth/signup/verify-otp') {
+    try {
+      const body = await readJson(req);
+      const email = String(body?.email || '').trim().toLowerCase();
+      const otp = String(body?.otp || '').trim();
+
+      if (!email || !otp) {
+        json(res, 400, { error: 'email and otp are required.' });
+        return;
+      }
+      const otpRow = await getActiveOtp({ email, purpose: 'signup' });
+      if (!otpRow || !verifyOtpCode(otp, String(otpRow.otp_hash || ''))) {
+        json(res, 401, { error: 'Invalid or expired OTP.' });
+        return;
+      }
+
+      let payload = {};
+      try {
+        payload = JSON.parse(String(otpRow.payload_json || '{}'));
+      } catch {
+        payload = {};
+      }
+
+      const fullName = String(payload?.fullName || '').trim();
+      const passwordHash = String(payload?.passwordHash || '').trim();
+      const photoUrl = String(payload?.photoUrl || '').trim();
+      if (!fullName || !passwordHash) {
+        json(res, 400, { error: 'Signup OTP payload is invalid. Request OTP again.' });
+        return;
+      }
+
+      const userId = crypto.randomUUID();
+      const pool = getMysqlPool();
+      await pool.execute(
+        `insert into users (id, full_name, email, password_hash, photo_url)
+         values (?, ?, ?, ?, ?)`,
+        [userId, fullName, email, passwordHash, photoUrl || null]
+      );
+      await markOtpUsed(Number(otpRow.id));
+
+      json(res, 200, {
+        ok: true,
+        user: {
+          id: userId,
+          fullName,
+          email,
+          photoUrl,
+        },
+      });
+    } catch (error) {
+      if (isMysqlDuplicate(error)) {
+        json(res, 409, { error: 'Email already registered.' });
+        return;
+      }
+      json(res, 500, { error: error.message || 'Signup verification failed.' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/auth/login') {
+    try {
+      const body = await readJson(req);
+      const email = String(body?.email || '').trim().toLowerCase();
+      const password = String(body?.password || '');
+
+      if (!email || !password) {
+        json(res, 400, { error: 'email and password are required.' });
+        return;
+      }
+
+      const pool = getMysqlPool();
+      const [rows] = await pool.execute(
+        `select id, full_name, email, password_hash, photo_url
+         from users
+         where email = ?
+         limit 1`,
+        [email]
+      );
+
+      const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+      if (!row || !verifyPassword(password, String(row.password_hash || ''))) {
+        json(res, 401, { error: 'Invalid email or password.' });
+        return;
+      }
+
+      json(res, 200, {
+        ok: true,
+        user: {
+          id: String(row.id),
+          fullName: String(row.full_name || ''),
+          email: String(row.email || ''),
+          photoUrl: String(row.photo_url || ''),
+        },
+      });
+    } catch (error) {
+      json(res, 500, { error: error.message || 'Login failed.' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/auth/password/send-otp') {
+    try {
+      const body = await readJson(req);
+      const email = String(body?.email || '').trim().toLowerCase();
+      if (!email || !isValidEmail(email)) {
+        json(res, 400, { error: 'Valid email is required.' });
+        return;
+      }
+
+      const pool = getMysqlPool();
+      const [rows] = await pool.execute('select id from users where email = ? limit 1', [email]);
+      if (!Array.isArray(rows) || rows.length === 0) {
+        // Do not reveal account existence.
+        json(res, 200, { ok: true, message: 'If your account exists, OTP has been sent.' });
+        return;
+      }
+
+      const otp = generateOtpCode();
+      await saveOtpCode({ email, purpose: 'reset', otp, payloadJson: '{}' });
+      await sendOtpEmail({
+        to: email,
+        subject: 'MediCompanion Password Reset OTP',
+        otp,
+        note: `Use this OTP to reset your password. It expires in ${OTP_EXPIRY_MINUTES} minutes.`,
+      });
+      json(res, 200, { ok: true, message: 'OTP sent to your email.' });
+    } catch (error) {
+      json(res, 500, { error: error.message || 'Could not send reset OTP.' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/auth/password/reset') {
+    try {
+      const body = await readJson(req);
+      const email = String(body?.email || '').trim().toLowerCase();
+      const otp = String(body?.otp || '').trim();
+      const newPassword = String(body?.newPassword || '');
+      if (!email || !otp || !newPassword) {
+        json(res, 400, { error: 'email, otp, and newPassword are required.' });
+        return;
+      }
+      if (newPassword.length < 6) {
+        json(res, 400, { error: 'Password must be at least 6 characters.' });
+        return;
+      }
+
+      const otpRow = await getActiveOtp({ email, purpose: 'reset' });
+      if (!otpRow || !verifyOtpCode(otp, String(otpRow.otp_hash || ''))) {
+        json(res, 401, { error: 'Invalid or expired OTP.' });
+        return;
+      }
+
+      const pool = getMysqlPool();
+      const [result] = await pool.execute('update users set password_hash = ? where email = ?', [hashPassword(newPassword), email]);
+      if (!result || Number(result.affectedRows || 0) < 1) {
+        json(res, 404, { error: 'Account not found.' });
+        return;
+      }
+      await markOtpUsed(Number(otpRow.id));
+      json(res, 200, { ok: true, message: 'Password updated successfully.' });
+    } catch (error) {
+      json(res, 500, { error: error.message || 'Could not reset password.' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/profile/update') {
+    try {
+      const body = await readJson(req);
+      const userId = sanitizeUuid(body?.user_id);
+      const fullName = String(body?.fullName || '').trim();
+      const email = String(body?.email || '').trim().toLowerCase();
+      const photoUrlInput = String(body?.photoUrl || '').trim();
+      const photoDataUrl = String(body?.photoDataUrl || '').trim();
+
+      if (!userId) {
+        json(res, 400, { error: 'user_id is required.' });
+        return;
+      }
+      if (!fullName || !email || !isValidEmail(email)) {
+        json(res, 400, { error: 'Valid fullName and email are required.' });
+        return;
+      }
+
+      const pool = getMysqlPool();
+      const [existingRows] = await pool.execute('select id from users where email = ? and id <> ? limit 1', [email, userId]);
+      if (Array.isArray(existingRows) && existingRows.length > 0) {
+        json(res, 409, { error: 'Email already used by another account.' });
+        return;
+      }
+
+      let nextPhotoUrl = photoUrlInput;
+      if (photoDataUrl) {
+        nextPhotoUrl = saveProfileImageFromDataUrl({
+          dataUrl: photoDataUrl,
+          userId,
+          baseUrl: getBaseUrl(req),
+        });
+      }
+
+      await pool.execute(
+        `update users
+         set full_name = ?, email = ?, photo_url = ?
+         where id = ?`,
+        [fullName, email, nextPhotoUrl || null, userId]
+      );
+
+      const [rows] = await pool.execute(
+        `select id, full_name, email, photo_url
+         from users
+         where id = ?
+         limit 1`,
+        [userId]
+      );
+      const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+      if (!row) {
+        json(res, 404, { error: 'User not found.' });
+        return;
+      }
+
+      json(res, 200, {
+        ok: true,
+        user: {
+          id: String(row.id),
+          fullName: String(row.full_name || ''),
+          email: String(row.email || ''),
+          photoUrl: String(row.photo_url || ''),
+        },
+      });
+    } catch (error) {
+      json(res, 500, { error: error.message || 'Could not update profile.' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/account/delete') {
+    try {
+      const body = await readJson(req);
+      const userId = sanitizeUuid(body?.user_id);
+      if (!userId) {
+        json(res, 400, { error: 'user_id is required.' });
+        return;
+      }
+
+      const pool = getMysqlPool();
+      const [rows] = await pool.execute(
+        `select id, email, photo_url
+         from users
+         where id = ?
+         limit 1`,
+        [userId]
+      );
+      const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+      if (!row) {
+        json(res, 404, { error: 'User not found.' });
+        return;
+      }
+
+      const email = String(row.email || '').trim().toLowerCase();
+      const photoUrl = String(row.photo_url || '').trim();
+
+      await pool.execute('delete from chat_messages where user_id = ?', [userId]);
+      if (email) {
+        await pool.execute('delete from otp_codes where email = ?', [email]);
+      }
+      await pool.execute('delete from users where id = ? limit 1', [userId]);
+      removeLocalProfileFileByUrl(photoUrl);
+      clearUserScreeningState(userId);
+
+      json(res, 200, { ok: true, deleted: true, user_id: userId });
+    } catch (error) {
+      json(res, 500, { error: error.message || 'Could not delete account.' });
+    }
+    return;
+  }
+
+  // ── POST /admin/login — exchange email+password for session token ──────────
+  if (req.method === 'POST' && requestUrl.pathname === '/admin/login') {
+    try {
+      const body = await readJson(req);
+      const email    = String(body?.email    || '').trim().toLowerCase();
+      const password = String(body?.password || '').trim();
+
+      if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+        json(res, 500, { error: 'Admin credentials not configured in .env' }); return;
+      }
+      if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
+        json(res, 401, { error: 'Invalid email or password.' }); return;
+      }
+      json(res, 200, { ok: true, token: ADMIN_SECRET });
+    } catch (err) {
+      json(res, 500, { error: err.message });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && requestUrl.pathname === '/admin/config') {
+    if (!isAdmin(req)) {
+      json(res, 401, { error: 'Unauthorized admin request.' });
+      return;
+    }
+
+    try {
+      const cfg = await getRuntimeConfig();
+      json(res, 200, {
+        openai_enabled: cfg.openai_enabled,
+        openai_model: cfg.openai_model,
+        openai_api_key_masked: maskKey(cfg.openai_api_key),
+        ai_provider: normalizeProvider(cfg.ai_provider),
+        local_api_url: String(cfg.local_api_url || '').trim(),
+        local_api_key_masked: maskKey(cfg.local_api_key),
+        rag_enabled: cfg.rag_enabled,
+        rag_top_k: cfg.rag_top_k,
+        supabase_url: String(cfg.supabase_url || '').trim(),
+        supabase_key_masked: maskKey(cfg.supabase_key),
+        ftjob_id: cfg.ftjob_id || null,
+        ft_model:  cfg.ft_model  || null,
+        updated_at: cfg.updated_at,
+      });
+    } catch (error) {
+      json(res, 500, { error: error.message || 'Could not read config.' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/admin/config') {
+    if (!isAdmin(req)) {
+      json(res, 401, { error: 'Unauthorized admin request.' });
+      return;
+    }
+
+    try {
+      const body = await readJson(req);
+
+      const patch = {};
+      if (typeof body.openai_enabled === 'boolean') patch.openai_enabled = body.openai_enabled;
+      if (typeof body.openai_model === 'string' && body.openai_model.trim()) patch.openai_model = body.openai_model.trim();
+      if (typeof body.openai_api_key === 'string' && body.openai_api_key.trim()) patch.openai_api_key = body.openai_api_key.trim();
+      if (typeof body.ai_provider === 'string' && body.ai_provider.trim()) patch.ai_provider = normalizeProvider(body.ai_provider);
+      if (typeof body.local_api_url === 'string' && body.local_api_url.trim()) patch.local_api_url = body.local_api_url.trim();
+      if (typeof body.local_api_key === 'string') patch.local_api_key = body.local_api_key.trim();
+      // RAG config fields
+      if (typeof body.rag_enabled === 'boolean') patch.rag_enabled = body.rag_enabled;
+      if (typeof body.rag_top_k === 'number' && body.rag_top_k > 0) patch.rag_top_k = Math.min(20, body.rag_top_k);
+      if (typeof body.supabase_url === 'string') patch.supabase_url = body.supabase_url.trim();
+      if (typeof body.supabase_key === 'string' && body.supabase_key.trim()) patch.supabase_key = body.supabase_key.trim();
+
+      if (Object.keys(patch).length === 0) {
+        json(res, 400, { error: 'No valid fields to update.' });
+        return;
+      }
+
+      const updated = await updateRuntimeConfig(patch);
+      json(res, 200, {
+        ok: true,
+        openai_enabled: updated.openai_enabled,
+        openai_model: updated.openai_model,
+        openai_api_key_masked: maskKey(updated.openai_api_key),
+        ai_provider: normalizeProvider(updated.ai_provider),
+        local_api_url: String(updated.local_api_url || '').trim(),
+        local_api_key_masked: maskKey(updated.local_api_key),
+        rag_enabled: updated.rag_enabled,
+        rag_top_k: updated.rag_top_k,
+        supabase_url: String(updated.supabase_url || '').trim(),
+        supabase_key_masked: maskKey(updated.supabase_key),
+        updated_at: updated.updated_at,
+      });
+    } catch (error) {
+      json(res, 500, { error: error.message || 'Could not update config.' });
+    }
+    return;
+  }
+
+  // ── Admin panel static page ────────────────────────────────────────────────
+  if (req.method === 'GET' && requestUrl.pathname === '/admin/panel') {
+    const fs = require('fs');
+    const htmlPath = path.join(PUBLIC_DIR, 'admin.html');
+    if (!fs.existsSync(htmlPath)) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('admin.html not found'); return;
+    }
+    const html = fs.readFileSync(htmlPath, 'utf8');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
+
+  // ── POST /admin/documents/upload — ingest a PDF ────────────────────────────
+  if (req.method === 'POST' && requestUrl.pathname === '/admin/documents/upload') {
+    if (!isAdmin(req)) { json(res, 401, { error: 'Unauthorized.' }); return; }
+    try {
+      const cfg = await getRuntimeConfig();
+      if (!cfg.supabase_url || !cfg.supabase_key) {
+        json(res, 400, { error: 'Supabase not configured. Set supabase_url and supabase_key in admin config.' });
+        return;
+      }
+      const apiKey = String(cfg.openai_api_key || '').trim();
+      const embedProvider = getEmbedProvider(cfg, apiKey);
+      // embedProvider is always valid: OpenAI if sk- key present, Ollama otherwise
+
+      const { buffer, filename } = await parseMultipartUpload(req);
+      if (!filename.toLowerCase().endsWith('.pdf')) {
+        json(res, 400, { error: 'Only PDF files are supported.' }); return;
+      }
+      const title = filename.replace(/\.pdf$/i, '').trim() || 'Untitled';
+      const result = await ingestPdfBuffer(cfg, apiKey, buffer, title);
+      json(res, 200, { ok: true, ...result, embed_provider: embedProvider.type === 'openai' ? 'openai' : `ollama:${embedProvider.model}` });
+    } catch (err) {
+      json(res, 500, { error: err.message || 'Ingestion failed.' });
+    }
+    return;
+  }
+
+  // ── GET /admin/documents — list ingested documents ─────────────────────────
+  if (req.method === 'GET' && requestUrl.pathname === '/admin/documents') {
+    if (!isAdmin(req)) { json(res, 401, { error: 'Unauthorized.' }); return; }
+    try {
+      const cfg = await getRuntimeConfig();
+      const docs = await listRagDocuments(cfg);
+      json(res, 200, { ok: true, documents: docs });
+    } catch (err) {
+      json(res, 500, { error: err.message || 'Could not list documents.' });
+    }
+    return;
+  }
+
+  // ── DELETE /admin/documents — delete ALL documents ─────────────────────────
+  if (req.method === 'DELETE' && requestUrl.pathname === '/admin/documents') {
+    if (!isAdmin(req)) { json(res, 401, { error: 'Unauthorized.' }); return; }
+    try {
+      const cfg = await getRuntimeConfig();
+      await deleteAllRagDocuments(cfg);
+      json(res, 200, { ok: true });
+    } catch (err) {
+      json(res, 500, { error: err.message || 'Could not delete documents.' });
+    }
+    return;
+  }
+
+  // ── DELETE /admin/documents/:title — delete one document ──────────────────
+  if (req.method === 'DELETE' && requestUrl.pathname.startsWith('/admin/documents/')) {
+    if (!isAdmin(req)) { json(res, 401, { error: 'Unauthorized.' }); return; }
+    try {
+      const titleEncoded = requestUrl.pathname.slice('/admin/documents/'.length);
+      const title = decodeURIComponent(titleEncoded);
+      if (!title) { json(res, 400, { error: 'Title is required.' }); return; }
+      const cfg = await getRuntimeConfig();
+      await deleteRagDocument(cfg, title);
+      json(res, 200, { ok: true });
+    } catch (err) {
+      json(res, 500, { error: err.message || 'Could not delete document.' });
+    }
+    return;
+  }
+
+  // ── GET /admin/training/examples ──────────────────────────────────────────
+  if (req.method === 'GET' && requestUrl.pathname === '/admin/training/examples') {
+    if (!isAdmin(req)) { json(res, 401, { error: 'Unauthorized.' }); return; }
+    try {
+      const pool = getMysqlPool();
+      const [rows] = await pool.execute(
+        'select id, system_prompt, user_input, assistant_output, enabled, created_at from training_examples order by id asc'
+      );
+      json(res, 200, { ok: true, examples: Array.isArray(rows) ? rows : [] });
+    } catch (err) { json(res, 500, { error: err.message }); }
+    return;
+  }
+
+  // ── POST /admin/training/examples ─────────────────────────────────────────
+  if (req.method === 'POST' && requestUrl.pathname === '/admin/training/examples') {
+    if (!isAdmin(req)) { json(res, 401, { error: 'Unauthorized.' }); return; }
+    try {
+      const body = await readJson(req);
+      const userInput = String(body?.user_input || '').trim();
+      const assistantOutput = String(body?.assistant_output || '').trim();
+      const systemPrompt = String(body?.system_prompt || '').trim() || null;
+      if (!userInput || !assistantOutput) {
+        json(res, 400, { error: 'user_input and assistant_output are required.' }); return;
+      }
+      const pool = getMysqlPool();
+      const [result] = await pool.execute(
+        'insert into training_examples (system_prompt, user_input, assistant_output, enabled) values (?, ?, ?, 1)',
+        [systemPrompt, userInput, assistantOutput]
+      );
+      json(res, 200, { ok: true, id: result.insertId });
+    } catch (err) { json(res, 500, { error: err.message }); }
+    return;
+  }
+
+  // ── PUT /admin/training/examples/:id ──────────────────────────────────────
+  if (req.method === 'PUT' && /^\/admin\/training\/examples\/\d+$/.test(requestUrl.pathname)) {
+    if (!isAdmin(req)) { json(res, 401, { error: 'Unauthorized.' }); return; }
+    try {
+      const id = parseInt(requestUrl.pathname.split('/').pop(), 10);
+      const body = await readJson(req);
+      const userInput = String(body?.user_input || '').trim();
+      const assistantOutput = String(body?.assistant_output || '').trim();
+      const systemPrompt = String(body?.system_prompt || '').trim() || null;
+      if (!userInput || !assistantOutput) {
+        json(res, 400, { error: 'user_input and assistant_output are required.' }); return;
+      }
+      const pool = getMysqlPool();
+      await pool.execute(
+        'update training_examples set system_prompt=?, user_input=?, assistant_output=? where id=?',
+        [systemPrompt, userInput, assistantOutput, id]
+      );
+      json(res, 200, { ok: true });
+    } catch (err) { json(res, 500, { error: err.message }); }
+    return;
+  }
+
+  // ── PATCH /admin/training/examples/:id/toggle ─────────────────────────────
+  if (req.method === 'PATCH' && /^\/admin\/training\/examples\/\d+\/toggle$/.test(requestUrl.pathname)) {
+    if (!isAdmin(req)) { json(res, 401, { error: 'Unauthorized.' }); return; }
+    try {
+      const parts = requestUrl.pathname.split('/');
+      const id = parseInt(parts[parts.length - 2], 10);
+      const pool = getMysqlPool();
+      await pool.execute('update training_examples set enabled = 1 - enabled where id=?', [id]);
+      json(res, 200, { ok: true });
+    } catch (err) { json(res, 500, { error: err.message }); }
+    return;
+  }
+
+  // ── DELETE /admin/training/examples/:id ───────────────────────────────────
+  if (req.method === 'DELETE' && /^\/admin\/training\/examples\/\d+$/.test(requestUrl.pathname)) {
+    if (!isAdmin(req)) { json(res, 401, { error: 'Unauthorized.' }); return; }
+    try {
+      const id = parseInt(requestUrl.pathname.split('/').pop(), 10);
+      const pool = getMysqlPool();
+      await pool.execute('delete from training_examples where id=?', [id]);
+      json(res, 200, { ok: true });
+    } catch (err) { json(res, 500, { error: err.message }); }
+    return;
+  }
+
+  // ── POST /admin/training/apply — switch active model to fine-tuned model ──
+  if (req.method === 'POST' && requestUrl.pathname === '/admin/training/apply') {
+    if (!isAdmin(req)) { json(res, 401, { error: 'Unauthorized.' }); return; }
+    try {
+      const body = await readJson(req);
+      const modelId = String(body?.model_id || '').trim();
+      if (!modelId) { json(res, 400, { error: 'model_id is required.' }); return; }
+      const pool = getMysqlPool();
+      await pool.execute('update app_config set openai_model=?, updated_at=now() where id=1', [modelId]);
+      json(res, 200, { ok: true, applied_model: modelId });
+    } catch (err) { json(res, 500, { error: err.message }); }
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/admin/training/start') {
+    if (!isAdmin(req)) {
+      json(res, 401, { error: 'Unauthorized admin request.' });
+      return;
+    }
+
+    try {
+      const body = await readJson(req);
+      const suffix = String(body?.suffix || 'medicompanion').trim().slice(0, 40) || 'medicompanion';
+      const epochs = Number(body?.n_epochs);
+      const n_epochs = Number.isFinite(epochs) && epochs >= 1 && epochs <= 10 ? Math.floor(epochs) : undefined;
+
+      const runtimeCfg = await getRuntimeConfig();
+      const apiKey = String(runtimeCfg.openai_api_key || '').trim();
+      if (!apiKey) {
+        json(res, 400, { error: 'OpenAI API key is empty in app_config.' });
+        return;
+      }
+
+      const examples = await getTrainingExamples();
+      if (examples.length < MIN_TRAINING_EXAMPLES) {
+        json(res, 400, {
+          error: `At least ${MIN_TRAINING_EXAMPLES} enabled examples are required.`,
+          current_examples: examples.length,
+        });
+        return;
+      }
+
+      const jsonl = buildJsonl(examples);
+      const fileName = `medicompanion-train-${Date.now()}.jsonl`;
+
+      const upload = await uploadTrainingFile(apiKey, fileName, jsonl);
+      const job = await createFineTuningJob({
+        apiKey,
+        baseModel: runtimeCfg.openai_model || 'gpt-4o-mini-2024-07-18',
+        trainingFileId: upload.id,
+        suffix,
+        n_epochs,
+      });
+
+      // Persist job ID so the admin panel can poll it later
+      if (job?.id) await setFtJobId(job.id);
+
+      json(res, 200, {
+        ok: true,
+        base_model: runtimeCfg.openai_model || 'gpt-4o-mini-2024-07-18',
+        uploaded_file_id: upload.id,
+        training_examples: examples.length,
+        fine_tuning_job: job,
+      });
+    } catch (error) {
+      json(res, 500, { error: error.message || 'Could not start training job.' });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && requestUrl.pathname === '/admin/training/status') {
+    if (!isAdmin(req)) {
+      json(res, 401, { error: 'Unauthorized admin request.' });
+      return;
+    }
+
+    try {
+      const runtimeCfg = await getRuntimeConfig();
+      const apiKey = String(runtimeCfg.openai_api_key || '').trim();
+      const jobId = String(requestUrl.searchParams.get('job_id') || '').trim();
+
+      if (!apiKey) {
+        json(res, 400, { error: 'OpenAI API key is empty in app_config.' });
+        return;
+      }
+
+      if (!jobId) {
+        json(res, 400, { error: 'job_id query param is required.' });
+        return;
+      }
+
+      const job = await getFineTuningJob(apiKey, jobId);
+      // Persist fine-tuned model name as soon as job succeeds
+      if (job?.status === 'succeeded' && job?.fine_tuned_model) {
+        await setFtModel(job.fine_tuned_model);
+      }
+      json(res, 200, { ok: true, fine_tuning_job: job });
+    } catch (error) {
+      json(res, 500, { error: error.message || 'Could not read training status.' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/admin/training/cancel') {
+    if (!isAdmin(req)) {
+      json(res, 401, { error: 'Unauthorized admin request.' });
+      return;
+    }
+
+    try {
+      const runtimeCfg = await getRuntimeConfig();
+      const apiKey = String(runtimeCfg.openai_api_key || '').trim();
+      const body = await readJson(req);
+      const jobId = String(body?.job_id || '').trim();
+
+      if (!apiKey) {
+        json(res, 400, { error: 'OpenAI API key is empty in app_config.' });
+        return;
+      }
+
+      if (!jobId) {
+        json(res, 400, { error: 'job_id is required.' });
+        return;
+      }
+
+      const job = await cancelFineTuningJob(apiKey, jobId);
+      json(res, 200, { ok: true, fine_tuning_job: job });
+    } catch (error) {
+      json(res, 500, { error: error.message || 'Could not cancel training job.' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/api/chat') {
+    try {
+      const body = await readJson(req);
+      const message = String(body?.message || '').trim();
+      const history = Array.isArray(body?.history) ? body.history : [];
+      const sessionId = sanitizeUuid(body?.session_id);
+      const userId = sanitizeUuid(body?.user_id);
+
+      if (!message) {
+        json(res, 400, { error: 'Message is required.' });
+        return;
+      }
+
+      const migraineScreeningReply = handleMigraineScreening({ sessionId, userId, message });
+      if (migraineScreeningReply) {
+        const confidencePercent = computeConfidencePercent(message, migraineScreeningReply);
+        if (sessionId) {
+          await saveChatMessages({
+            sessionId,
+            userId,
+            userMessage: message,
+            assistantReply: migraineScreeningReply,
+          });
+        }
+        json(res, 200, {
+          blocked: false,
+          reply: migraineScreeningReply,
+          confidence_score: confidencePercent,
+          confidence_percent: confidencePercent,
+          confidence_label: confidenceLabelLower(confidencePercent),
+        });
+        return;
+      }
+
+      const gastroScreeningReply = handleGastroScreening({ sessionId, userId, message });
+      if (gastroScreeningReply) {
+        const confidencePercent = computeConfidencePercent(message, gastroScreeningReply);
+        if (sessionId) {
+          await saveChatMessages({
+            sessionId,
+            userId,
+            userMessage: message,
+            assistantReply: gastroScreeningReply,
+          });
+        }
+        json(res, 200, {
+          blocked: false,
+          reply: gastroScreeningReply,
+          confidence_score: confidencePercent,
+          confidence_percent: confidencePercent,
+          confidence_label: confidenceLabelLower(confidencePercent),
+        });
+        return;
+      }
+
+      const runtimeCfg = await getRuntimeConfig();
+
+      // openai_enabled is the "chat enabled" master switch (applies to all providers)
+      if (!runtimeCfg.openai_enabled) {
+        json(res, 200, {
+          blocked: true,
+          reply: 'Chat is temporarily disabled. Please ask the admin to enable AI chat.',
+          confidence_score: 0,
+          confidence_percent: 0,
+          confidence_label: 'low',
+        });
+        return;
+      }
+
+      // Auto-detect provider: use OpenAI if key is present, otherwise fall back to Ollama
+      const configuredProvider = normalizeProvider(runtimeCfg.ai_provider);
+      const hasOpenAIKey = String(runtimeCfg.openai_api_key || '').trim().startsWith('sk-');
+      const provider = (configuredProvider === 'openai' && !hasOpenAIKey) ? 'local' : configuredProvider;
+      if (configuredProvider !== provider) {
+        console.log('[Chat] No OpenAI key found — falling back to Ollama for chat.');
+      }
+
+      // ── RAG v2 pipeline ───────────────────────────────────────────────────
+      const embedProvider = getEmbedProvider(runtimeCfg, runtimeCfg.openai_api_key);
+      const embedVia = embedProvider.type === 'openai'
+        ? 'text-embedding-3-small (768d)'
+        : `Ollama ${embedProvider.model}`;
+      const latencyMs = {};
+      let ragContextText = '';
+      let ragSources     = [];
+      let ragUsed        = false;
+      let ragTopSim      = 0;
+      let rewrittenQuery = message;
+      let allQueryVariants = [message];
+
+      if (runtimeCfg.rag_enabled) {
+        try {
+          const topK = Number(runtimeCfg.rag_top_k) || 5;
+
+          // 1. Query rewrite — expand to detailed clinical terminology
+          let t0 = Date.now();
+          rewrittenQuery = await rewriteQuery(runtimeCfg, provider, message);
+          latencyMs.query_rewrite = Date.now() - t0;
+
+          // 2. Multi-query expansion — 3 alternative phrasings
+          t0 = Date.now();
+          allQueryVariants = await generateQueryVariants(runtimeCfg, provider, rewrittenQuery);
+          latencyMs.query_expansion = Date.now() - t0;
+
+          // 3. Hybrid retrieval — HyDE dense + multi-query + BM25
+          t0 = Date.now();
+          const chunks = await hybridRetrieve(
+            runtimeCfg, runtimeCfg.openai_api_key, provider, allQueryVariants, topK
+          );
+          latencyMs.retrieval = Date.now() - t0;
+
+          if (chunks.length > 0) {
+            ragTopSim = chunks[0].similarity || 0;
+            const { contextText, sources } = buildRagContextV2(chunks);
+            ragContextText = contextText;
+            ragSources     = sources;
+            ragUsed        = true;
+            console.log(
+              `[RAG] Top chunk hybridScore=${(chunks[0].hybridScore || 0).toFixed(3)}  title="${chunks[0].title}"`
+            );
+          }
+        } catch (ragErr) {
+          console.error('[RAG] retrieval error:', ragErr.message);
+        }
+      }
+
+      // ── Build LLM messages ────────────────────────────────────────────────
+      const messages = [
+        {
+          role: 'system',
+          content:
+            'You are MediCompanion, a medical education assistant. Reply in English only. You must only answer these topics: Migraine and Gastrointestinal (stomach) issues. If question is outside these 2 topics, politely refuse and list the 2 supported topics. Keep answers simple, clear, and short. Never provide diagnosis certainty or prescription dosage. If urgent red flags appear, advise immediate doctor/ER visit. Always end with this exact disclaimer: "This information is for educational purposes only and is not a substitute for professional medical advice."',
+        },
+        ...history
+          .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.text === 'string')
+          .slice(-6)
+          .map((m) => ({ role: m.role, content: m.text })),
+        { role: 'user', content: message },
+      ];
+
+      // ── Self-verify generation (generates + repairs if faithfulness is poor) ─
+      let reply, genFaithfulness = 0;
+      const t0Gen = Date.now();
+      if (ragUsed) {
+        const verified = await selfVerifyGenerate(runtimeCfg, provider, messages, ragContextText);
+        reply            = verified.reply;
+        genFaithfulness  = verified.faithfulness;
+      } else {
+        reply = provider === 'local'
+          ? await chatWithLocalModel(runtimeCfg, messages, null)
+          : await chatWithOpenAI(runtimeCfg, messages, null);
+      }
+      latencyMs.generation = Date.now() - t0Gen;
+
+      if (!reply) {
+        json(res, 502, { error: 'No response text from model.' });
+        return;
+      }
+
+      // ── Scoring — faithfulness, hallucination, answer relevance ──────────
+      const tScore = Date.now();
+      let faithfulness = genFaithfulness, halluScore = 0, halluMethod = 'none', answerRelevance = 0;
+
+      if (ragUsed && ragContextText) {
+        faithfulness = faithfulnessScore(reply, ragContextText);
+
+        // When faithfulness is already high, the answer is provably grounded in the source —
+        // skip the LLM judge (local models give unreliable scores) and treat hallu as 0.
+        if (faithfulness >= 0.75) {
+          halluScore  = 0;
+          halluMethod = 'faith_override';
+        } else {
+          const hallu = await llmHallucinationCheck(runtimeCfg, provider, reply, ragContextText);
+          halluScore  = hallu.hallucination_score;
+          halluMethod = hallu.method;
+        }
+
+        // Cosine similarity between query embedding and answer embedding
+        try {
+          const [qEmb, aEmb] = await Promise.all([
+            embedCached(runtimeCfg, runtimeCfg.openai_api_key, message),
+            embedCached(runtimeCfg, runtimeCfg.openai_api_key, reply.slice(0, 512)),
+          ]);
+          answerRelevance = Math.max(0, cosineSimilarity(qEmb, aEmb));
+        } catch { /* non-fatal */ }
+      }
+      latencyMs.scoring = Date.now() - tScore;
+
+      // ── Safety filter ─────────────────────────────────────────────────────
+      const { safe, reason: safetyReason } = safetyCheck(reply, halluScore);
+      if (!safe) {
+        console.log(`[RAG] Safety blocked: ${safetyReason}`);
+        reply =
+          '[Safety Filter] This response was blocked due to safety constraints ' +
+          `(${safetyReason}). Please consult a qualified medical professional for specific advice.`;
+      }
+
+      // ── Screening offer hooks (unchanged) ─────────────────────────────────
+      const finalReply = addMigraineScreeningOffer({ reply, message, sessionId, userId });
+      const finalReply2 =
+        finalReply === reply
+          ? addGastroScreeningOffer({ reply, message, sessionId, userId })
+          : finalReply;
+
+      // ── Persist RAG analytics to Supabase chat_history (fire-and-forget) ─
+      if (ragUsed) {
+        saveRagChatHistory(runtimeCfg, {
+          sessionId,
+          query:          message,
+          rewrittenQuery,
+          answer:         finalReply2,
+          faithfulness,
+          halluScore,
+          sources:        ragSources,
+          llmUsed:        provider === 'local' ? 'ollama' : 'openai',
+          embedVia,
+        });
+      }
+
+      // ── Confidence — multi-factor when RAG used, keyword-based otherwise ──
+      let confidenceLabelStr, confidenceScoreNum;
+      if (ragUsed) {
+        const band = confidenceBand(faithfulness, halluScore, answerRelevance);
+        confidenceLabelStr = band.label;
+        confidenceScoreNum = Math.round(band.score * 100);
+      } else {
+        confidenceScoreNum = computeConfidencePercent(message, finalReply2);
+        confidenceLabelStr = confidenceLabelLower(confidenceScoreNum);
+      }
+
+      // ── Persist to MySQL chat_messages ────────────────────────────────────
+      if (sessionId) {
+        const totalMs = Object.values(latencyMs).reduce((s, v) => s + (Number(v) || 0), 0);
+        await saveChatMessages({
+          sessionId, userId, userMessage: message, assistantReply: finalReply2,
+          meta: {
+            ragUsed,
+            confidenceLabel:   confidenceLabelStr,
+            faithfulnessScore: faithfulness,
+            halluScore,
+            llmUsed:           provider === 'local' ? 'ollama' : 'openai',
+            sources:           ragSources,
+            totalLatencyMs:    totalMs,
+          },
+        });
+      }
+
+      json(res, 200, {
+        blocked:             false,
+        reply:               finalReply2,
+        confidence_score:    confidenceScoreNum,
+        confidence_percent:  confidenceScoreNum,
+        confidence_label:    confidenceLabelStr,
+        rag_used:            ragUsed,
+        sources:             ragSources,
+        // v2 analytics fields
+        rewritten_query:     rewrittenQuery !== message ? rewrittenQuery : undefined,
+        similarity:          ragUsed ? ragTopSim                                   : undefined,
+        faithfulness_score:  ragUsed ? Math.round(faithfulness   * 100) / 100      : undefined,
+        hallucination_score: ragUsed ? Math.round(halluScore      * 100) / 100     : undefined,
+        hallu_method:        ragUsed ? halluMethod                                 : undefined,
+        answer_relevance:    ragUsed ? Math.round(answerRelevance * 100) / 100     : undefined,
+        llm_used:            provider === 'local' ? 'ollama' : 'openai',
+        embed_via:           ragUsed ? embedVia                                    : undefined,
+        latency_ms:          latencyMs,
+      });
+      return;
+    } catch (error) {
+      json(res, 500, { error: error.message || 'Unexpected server error' });
+      return;
+    }
+  }
+
+  json(res, 404, { error: 'Not found' });
+});
+
+server.listen(PORT, () => {
+  ensureDir(PROFILE_UPLOADS_DIR);
+  console.log(`MediCompanion API running on http://localhost:${PORT}`);
+});
+
+function setCorsHeaders(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-admin-secret');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+}
+
+function json(res, status, payload) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(payload));
+}
+
+function readJson(req) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 1_000_000) {
+        reject(new Error('Payload too large.'));
+      }
+    });
+    req.on('end', () => {
+      if (!raw) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(raw));
+      } catch {
+        reject(new Error('Invalid JSON body.'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function getBaseUrl(req) {
+  const proto = String(req.headers['x-forwarded-proto'] || '').trim() || 'http';
+  const host = String(req.headers.host || '').trim();
+  if (!host) return '';
+  return `${proto}://${host}`;
+}
+
+function ensureDir(dirPath) {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+}
+
+function saveProfileImageFromDataUrl({ dataUrl, userId, baseUrl }) {
+  const m = /^data:image\/(png|jpeg|jpg|webp);base64,([a-z0-9+/=\r\n]+)$/i.exec(String(dataUrl || ''));
+  if (!m) throw new Error('Invalid image format. Use PNG/JPEG/WebP base64 data URL.');
+  const type = m[1].toLowerCase() === 'jpg' ? 'jpeg' : m[1].toLowerCase();
+  const b64 = m[2].replace(/\s+/g, '');
+  const buffer = Buffer.from(b64, 'base64');
+  if (!buffer || buffer.length < 10) throw new Error('Invalid image payload.');
+  if (buffer.length > 2 * 1024 * 1024) throw new Error('Image too large. Max 2MB.');
+
+  const ext = type === 'jpeg' ? 'jpg' : type;
+  ensureDir(PROFILE_UPLOADS_DIR);
+  const file = `${userId}-${Date.now()}.${ext}`;
+  const absPath = path.join(PROFILE_UPLOADS_DIR, file);
+  fs.writeFileSync(absPath, buffer);
+  const relUrl = `/uploads/profiles/${file}`;
+  return baseUrl ? `${baseUrl}${relUrl}` : relUrl;
+}
+
+function removeLocalProfileFileByUrl(photoUrl) {
+  const value = String(photoUrl || '').trim();
+  if (!value) return;
+  const marker = '/uploads/profiles/';
+  const idx = value.indexOf(marker);
+  if (idx < 0) return;
+  const rel = value.slice(idx + 1);
+  const abs = path.normalize(path.join(__dirname, rel));
+  if (!abs.startsWith(PROFILE_UPLOADS_DIR)) return;
+  if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
+    try {
+      fs.unlinkSync(abs);
+    } catch {}
+  }
+}
+
+function looksMedical(text) {
+  const value = text.toLowerCase();
+  return MEDICAL_KEYWORDS.some((k) => value.includes(k));
+}
+
+function looksAllowedTopic(text) {
+  const value = String(text || '').toLowerCase();
+  return Object.values(ALLOWED_TOPIC_KEYWORDS).some((items) => items.some((k) => value.includes(k)));
+}
+
+function countTopicHits(text, list) {
+  const value = String(text || '').toLowerCase();
+  if (!value) return 0;
+  let hits = 0;
+  for (const keyword of list || []) {
+    if (value.includes(String(keyword).toLowerCase())) hits += 1;
+  }
+  return hits;
+}
+
+function confidenceLabel(percent) {
+  const p = Number(percent || 0);
+  if (p > 60) return 'High';
+  if (p < 35) return 'Low';
+  return 'Medium';
+}
+
+function confidenceLabelLower(percent) {
+  const label = confidenceLabel(percent);
+  if (label === 'High') return 'high';
+  if (label === 'Medium') return 'medium';
+  return 'low';
+}
+
+function computeConfidencePercent(message, reply) {
+  const migraineHits = countTopicHits(message, ALLOWED_TOPIC_KEYWORDS.migraine || []);
+  const gastroHits = countTopicHits(message, ALLOWED_TOPIC_KEYWORDS.gastro || []);
+  const topHits = Math.max(migraineHits, gastroHits);
+
+  let percent = 40;
+  if (topHits >= 5) percent = 90;
+  else if (topHits === 4) percent = 85;
+  else if (topHits === 3) percent = 78;
+  else if (topHits === 2) percent = 68;
+  else if (topHits === 1) percent = 55;
+
+  const replyText = String(reply || '').toLowerCase();
+  if (replyText.includes('i can currently assist only with these topics')) {
+    percent = Math.min(percent, 40);
+  }
+
+  if (!looksMedical(String(message || ''))) {
+    percent = Math.min(percent, 35);
+  }
+
+  if (percent < 0) percent = 0;
+  if (percent > 100) percent = 100;
+  return Math.round(percent);
+}
+
+function handleDiabetesScreening({ sessionId, userId, message }) {
+  const key = getScreeningKey(sessionId, userId);
+  const text = String(message || '').trim();
+  const value = text.toLowerCase();
+  const active = diabetesScreenSessions.get(key);
+  const waitingOffer = Boolean(diabetesOfferSessions.get(key));
+
+  if (waitingOffer) {
+    const answer = parseYesNo(value);
+    if (answer === true) {
+      diabetesOfferSessions.delete(key);
+      diabetesScreenSessions.set(key, { index: 0, answers: [] });
+      return (
+        'Great. Diabetes screening started. Please answer in Yes or No.\n' +
+        `Question 1/${DIABETES_SCREEN_QUESTIONS.length}: ${DIABETES_SCREEN_QUESTIONS[0]} (Yes/No)`
+      );
+    }
+    if (answer === false) {
+      diabetesOfferSessions.delete(key);
+      return null;
+    }
+    diabetesOfferSessions.delete(key);
+  }
+
+  if (active) {
+    if (['stop', 'cancel', 'exit'].includes(value)) {
+      diabetesScreenSessions.delete(key);
+      return 'Diabetes screening stopped. You can ask about Diabetes, Migraine, or Gastro topics anytime.';
+    }
+
+    const answer = parseYesNo(value);
+    if (answer === null) {
+      return 'Please answer with Yes or No. You can also type "stop" to end screening.';
+    }
+
+    active.answers.push(answer);
+    active.index += 1;
+
+    if (active.index < DIABETES_SCREEN_QUESTIONS.length) {
+      const qNo = active.index + 1;
+      return `Question ${qNo}/${DIABETES_SCREEN_QUESTIONS.length}: ${DIABETES_SCREEN_QUESTIONS[active.index]} (Yes/No)`;
+    }
+
+    diabetesScreenSessions.delete(key);
+    return buildDiabetesRiskSummary(active.answers);
+  }
+
+  if (wantsDiabetesScreening(value)) {
+    diabetesScreenSessions.set(key, { index: 0, answers: [] });
+    return (
+      'Diabetes screening started. Please answer in Yes or No.\n' +
+      `Question 1/${DIABETES_SCREEN_QUESTIONS.length}: ${DIABETES_SCREEN_QUESTIONS[0]} (Yes/No)`
+    );
+  }
+
+  return null;
+}
+
+function getScreeningKey(sessionId, userId) {
+  if (sessionId) return `session:${sessionId}`;
+  if (userId) return `user:${userId}`;
+  return 'anon:global';
+}
+
+function clearUserScreeningState(userId) {
+  const key = getScreeningKey(null, userId);
+  diabetesScreenSessions.delete(key);
+  diabetesOfferSessions.delete(key);
+  migraineScreenSessions.delete(key);
+  migraineOfferSessions.delete(key);
+  gastroScreenSessions.delete(key);
+  gastroOfferSessions.delete(key);
+}
+
+function parseYesNo(value) {
+  const yes = ['yes', 'y', 'haan', 'han', 'ji', 'yep', 'yeah'];
+  const no = ['no', 'n', 'nah', 'nope'];
+  if (yes.includes(value)) return true;
+  if (no.includes(value)) return false;
+  return null;
+}
+
+function wantsDiabetesScreening(value) {
+  const hasDiabetesWord =
+    value.includes('diabetes') ||
+    value.includes('blood sugar') ||
+    value.includes('sugar');
+
+  const hasUncertaintyIntent =
+    value.includes('screen') ||
+    value.includes('check') ||
+    value.includes('am i') ||
+    value.includes('do i have') ||
+    value.includes('could this be') ||
+    value.includes('can this be') ||
+    value.includes('how do i know') ||
+    value.includes('how to know') ||
+    value.includes('symptom') ||
+    value.includes('risk') ||
+    value.includes('lagta') ||
+    value.includes('pata chale') ||
+    value.includes('kya mujhe');
+
+  const diabetesSymptomSignals = [
+    'thirsty',
+    'frequent urination',
+    'urinate often',
+    'peeing a lot',
+    'blurred vision',
+    'fatigue',
+    'tired',
+    'weight loss',
+    'slow healing',
+    'wound',
+  ];
+  const symptomHits = diabetesSymptomSignals.filter((x) => value.includes(x)).length;
+  const hasStrongSymptomPattern = symptomHits >= 2;
+
+  return (hasDiabetesWord && hasUncertaintyIntent) || hasStrongSymptomPattern;
+}
+
+function buildDiabetesRiskSummary(answers) {
+  const yesCount = answers.filter(Boolean).length;
+  let risk = 'Low likelihood';
+  let next = 'Maintain healthy diet and activity, and monitor symptoms.';
+
+  if (yesCount >= 6) {
+    risk = 'High risk';
+    next = 'Please arrange blood glucose or HbA1c testing soon and consult a doctor.';
+  } else if (yesCount >= 3) {
+    risk = 'Possible risk';
+    next = 'Consider blood glucose testing and discuss with a healthcare professional.';
+  }
+
+  return (
+    `Screening result: ${risk} (Yes answers: ${yesCount}/${DIABETES_SCREEN_QUESTIONS.length}).\n` +
+    `${next}\n\n` +
+    'This information is for educational purposes only and is not a substitute for professional medical advice.'
+  );
+}
+
+function handleMigraineScreening({ sessionId, userId, message }) {
+  const key = getScreeningKey(sessionId, userId);
+  const value = String(message || '').trim().toLowerCase();
+  const active = migraineScreenSessions.get(key);
+  const waitingOffer = Boolean(migraineOfferSessions.get(key));
+
+  if (waitingOffer) {
+    const answer = parseYesNo(value);
+    if (answer === true) {
+      migraineOfferSessions.delete(key);
+      migraineScreenSessions.set(key, { index: 0, answers: [] });
+      return (
+        'Great. Migraine screening started. Please answer in Yes or No.\n' +
+        `Question 1/${MIGRAINE_SCREEN_QUESTIONS.length}: ${MIGRAINE_SCREEN_QUESTIONS[0]} (Yes/No)`
+      );
+    }
+    if (answer === false) {
+      migraineOfferSessions.delete(key);
+      return null;
+    }
+    migraineOfferSessions.delete(key);
+  }
+
+  if (!active) return null;
+
+  if (['stop', 'cancel', 'exit'].includes(value)) {
+    migraineScreenSessions.delete(key);
+    return 'Migraine screening stopped. You can ask about Migraine or Gastro topics anytime.';
+  }
+
+  const answer = parseYesNo(value);
+  if (answer === null) {
+    return 'Please answer with Yes or No. You can also type "stop" to end screening.';
+  }
+
+  active.answers.push(answer);
+  active.index += 1;
+  if (active.index < MIGRAINE_SCREEN_QUESTIONS.length) {
+    const qNo = active.index + 1;
+    return `Question ${qNo}/${MIGRAINE_SCREEN_QUESTIONS.length}: ${MIGRAINE_SCREEN_QUESTIONS[active.index]} (Yes/No)`;
+  }
+
+  migraineScreenSessions.delete(key);
+  return buildMigraineRiskSummary(active.answers);
+}
+
+function handleGastroScreening({ sessionId, userId, message }) {
+  const key = getScreeningKey(sessionId, userId);
+  const value = String(message || '').trim().toLowerCase();
+  const active = gastroScreenSessions.get(key);
+  const waitingOffer = Boolean(gastroOfferSessions.get(key));
+
+  if (waitingOffer) {
+    const answer = parseYesNo(value);
+    if (answer === true) {
+      gastroOfferSessions.delete(key);
+      gastroScreenSessions.set(key, { index: 0, answers: [] });
+      return (
+        'Great. Gastro screening started. Please answer in Yes or No.\n' +
+        `Question 1/${GASTRO_SCREEN_QUESTIONS.length}: ${GASTRO_SCREEN_QUESTIONS[0]} (Yes/No)`
+      );
+    }
+    if (answer === false) {
+      gastroOfferSessions.delete(key);
+      return null;
+    }
+    gastroOfferSessions.delete(key);
+  }
+
+  if (!active) return null;
+
+  if (['stop', 'cancel', 'exit'].includes(value)) {
+    gastroScreenSessions.delete(key);
+    return 'Gastro screening stopped. You can ask about Migraine or Gastro topics anytime.';
+  }
+
+  const answer = parseYesNo(value);
+  if (answer === null) {
+    return 'Please answer with Yes or No. You can also type "stop" to end screening.';
+  }
+
+  active.answers.push(answer);
+  active.index += 1;
+  if (active.index < GASTRO_SCREEN_QUESTIONS.length) {
+    const qNo = active.index + 1;
+    return `Question ${qNo}/${GASTRO_SCREEN_QUESTIONS.length}: ${GASTRO_SCREEN_QUESTIONS[active.index]} (Yes/No)`;
+  }
+
+  gastroScreenSessions.delete(key);
+  return buildGastroRiskSummary(active.answers);
+}
+
+function buildMigraineRiskSummary(answers) {
+  const yesCount = answers.filter(Boolean).length;
+  let risk = 'Low likelihood of migraine pattern';
+  let next = 'Track triggers and monitor headache patterns.';
+
+  if (yesCount >= 5) {
+    risk = 'High likelihood of migraine pattern';
+    next = 'Please consult a doctor or neurologist for diagnosis and management.';
+  } else if (yesCount >= 3) {
+    risk = 'Possible migraine pattern';
+    next = 'Consider a clinical evaluation if episodes are frequent or disabling.';
+  }
+
+  return (
+    `Screening result: ${risk} (Yes answers: ${yesCount}/${MIGRAINE_SCREEN_QUESTIONS.length}).\n` +
+    `${next}\n\n` +
+    'This information is for educational purposes only and is not a substitute for professional medical advice.'
+  );
+}
+
+function buildGastroRiskSummary(answers) {
+  const yesCount = answers.filter(Boolean).length;
+  let risk = 'Low likelihood of persistent gastro condition';
+  let next = 'Use diet and hydration precautions and monitor symptoms.';
+
+  if (yesCount >= 5) {
+    risk = 'High risk of significant gastrointestinal issue';
+    next = 'Please seek medical evaluation soon, especially if warning signs are present.';
+  } else if (yesCount >= 3) {
+    risk = 'Possible gastrointestinal issue';
+    next = 'Consider medical consultation and symptom-based evaluation.';
+  }
+
+  return (
+    `Screening result: ${risk} (Yes answers: ${yesCount}/${GASTRO_SCREEN_QUESTIONS.length}).\n` +
+    `${next}\n\n` +
+    'This information is for educational purposes only and is not a substitute for professional medical advice.'
+  );
+}
+
+function addDiabetesScreeningOffer({ reply, message, sessionId, userId }) {
+  const key = getScreeningKey(sessionId, userId);
+  if (diabetesScreenSessions.get(key)) return reply;
+  if (!isDiabetesTopic(message)) return reply;
+
+  diabetesOfferSessions.set(key, true);
+  return (
+    `${reply}\n\n` +
+    'Do you want a quick diabetes symptom screening to estimate risk? Reply Yes to start.'
+  );
+}
+
+function addMigraineScreeningOffer({ reply, message, sessionId, userId }) {
+  const key = getScreeningKey(sessionId, userId);
+  if (migraineScreenSessions.get(key)) return reply;
+  if (!isMigraineTopic(message)) return reply;
+
+  migraineOfferSessions.set(key, true);
+  return (
+    `${reply}\n\n` +
+    'Do you want a quick migraine symptom screening to estimate risk? Reply Yes to start.'
+  );
+}
+
+function addGastroScreeningOffer({ reply, message, sessionId, userId }) {
+  const key = getScreeningKey(sessionId, userId);
+  if (gastroScreenSessions.get(key)) return reply;
+  if (!isGastroTopic(message)) return reply;
+
+  gastroOfferSessions.set(key, true);
+  return (
+    `${reply}\n\n` +
+    'Do you want a quick gastro symptom screening to estimate risk? Reply Yes to start.'
+  );
+}
+
+function isDiabetesTopic(text) {
+  const value = String(text || '').toLowerCase();
+  const list = ALLOWED_TOPIC_KEYWORDS.diabetes || [];
+  return list.some((k) => value.includes(k));
+}
+
+function isMigraineTopic(text) {
+  const value = String(text || '').toLowerCase();
+  const list = ALLOWED_TOPIC_KEYWORDS.migraine || [];
+  return list.some((k) => value.includes(k));
+}
+
+function isGastroTopic(text) {
+  const value = String(text || '').toLowerCase();
+  const list = ALLOWED_TOPIC_KEYWORDS.gastro || [];
+  return list.some((k) => value.includes(k));
+}
+
+function loadEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return;
+
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+  for (const line of lines) {
+    if (!line || line.trim().startsWith('#')) continue;
+    const i = line.indexOf('=');
+    if (i < 0) continue;
+    const key = line.slice(0, i).trim();
+    const value = line.slice(i + 1).trim();
+    if (key && !process.env[key]) process.env[key] = value;
+  }
+}
+
+function isAdmin(req) {
+  if (!ADMIN_SECRET) return false;
+  const header = String(req.headers['x-admin-secret'] || '').trim();
+  return Boolean(header) && header === ADMIN_SECRET;
+}
+
+function maskKey(key) {
+  const value = String(key || '').trim();
+  if (!value) return '';
+  if (value.length <= 8) return '****';
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+async function getRuntimeConfig() {
+  const pool = getMysqlPool();
+  const [rows] = await pool.execute(
+    `select id, openai_enabled, openai_model, openai_api_key, ai_provider, local_api_url, local_api_key,
+            rag_enabled, rag_top_k, supabase_url, supabase_key,
+            ftjob_id, ft_model, updated_at
+     from app_config
+     where id = 1
+     limit 1`
+  );
+  const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+  if (!row) {
+    throw new Error('app_config row not found in MySQL. Run backend/sql/mysql_runtime.sql first.');
+  }
+
+  return {
+    id: Number(row.id || 1),
+    openai_enabled: Boolean(Number(row.openai_enabled || 0)),
+    openai_model: String(row.openai_model || 'gpt-4o-mini'),
+    openai_api_key: String(row.openai_api_key || ''),
+    ai_provider: normalizeProvider(row.ai_provider),
+    local_api_url: String(row.local_api_url || 'http://127.0.0.1:11434'),
+    local_api_key: String(row.local_api_key || ''),
+    // RAG fields — fallback to .env values if not set in DB
+    rag_enabled: Boolean(Number(row.rag_enabled || 0)),
+    rag_top_k: Number(row.rag_top_k || 5),
+    supabase_url: String(row.supabase_url || SUPABASE_URL_ENV || ''),
+    supabase_key: String(row.supabase_key || SUPABASE_SERVICE_KEY_ENV || ''),
+    ftjob_id: row.ftjob_id ? String(row.ftjob_id) : null,
+    ft_model:  row.ft_model  ? String(row.ft_model)  : null,
+    updated_at: row.updated_at,
+  };
+}
+
+async function setFtJobId(jobId) {
+  const pool = getMysqlPool();
+  await pool.execute('update app_config set ftjob_id=?, ft_model=NULL where id=1', [jobId]);
+}
+
+async function setFtModel(modelId) {
+  const pool = getMysqlPool();
+  await pool.execute('update app_config set ft_model=? where id=1', [modelId]);
+}
+
+async function updateRuntimeConfig(patch) {
+  const current = await getRuntimeConfig();
+  const next = {
+    ...current,
+    ...patch,
+    id: 1,
+    updated_at: new Date().toISOString(),
+  };
+  const pool = getMysqlPool();
+  await pool.execute(
+    `insert into app_config
+      (id, openai_enabled, openai_model, openai_api_key, ai_provider, local_api_url, local_api_key,
+       rag_enabled, rag_top_k, supabase_url, supabase_key,
+       updated_at)
+     values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())
+     on duplicate key update
+      openai_enabled = values(openai_enabled),
+      openai_model = values(openai_model),
+      openai_api_key = values(openai_api_key),
+      ai_provider = values(ai_provider),
+      local_api_url = values(local_api_url),
+      local_api_key = values(local_api_key),
+      rag_enabled = values(rag_enabled),
+      rag_top_k = values(rag_top_k),
+      supabase_url = values(supabase_url),
+      supabase_key = values(supabase_key),
+      updated_at = now()`,
+    [
+      1,
+      next.openai_enabled ? 1 : 0,
+      next.openai_model,
+      next.openai_api_key,
+      normalizeProvider(next.ai_provider),
+      next.local_api_url,
+      next.local_api_key,
+      next.rag_enabled ? 1 : 0,
+      Number(next.rag_top_k) || 5,
+      String(next.supabase_url || ''),
+      String(next.supabase_key || ''),
+    ]
+  );
+  return getRuntimeConfig();
+}
+
+async function getTrainingExamples() {
+  const pool = getMysqlPool();
+  const [rows] = await pool.execute(
+    `select system_prompt, user_input, assistant_output
+     from training_examples
+     where enabled = 1
+     order by id asc`
+  );
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((x) => x && String(x.user_input || '').trim() && String(x.assistant_output || '').trim())
+    .map((x) => ({
+      system_prompt: String(x.system_prompt || '').trim(),
+      user_input: String(x.user_input || '').trim(),
+      assistant_output: String(x.assistant_output || '').trim(),
+    }));
+}
+
+function buildJsonl(examples) {
+  const lines = examples.map((item) => {
+    const systemPrompt =
+      item.system_prompt ||
+      'You are MediCompanion, a medical education assistant. Keep answers short and safe. No diagnosis certainty and no dosage.';
+    const record = {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: item.user_input },
+        { role: 'assistant', content: item.assistant_output },
+      ],
+    };
+    return JSON.stringify(record);
+  });
+
+  return `${lines.join('\n')}\n`;
+}
+
+async function uploadTrainingFile(apiKey, fileName, content) {
+  const boundary = `----mc-boundary-${Date.now()}`;
+  const body = [
+    `--${boundary}\r\n` +
+      'Content-Disposition: form-data; name="purpose"\r\n\r\n' +
+      'fine-tune\r\n',
+    `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n` +
+      'Content-Type: application/jsonl\r\n\r\n' +
+      content +
+      '\r\n',
+    `--${boundary}--\r\n`,
+  ].join('');
+
+  const resp = await fetch('https://api.openai.com/v1/files', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+    },
+    body,
+  });
+
+  if (!resp.ok) {
+    const detail = await resp.text();
+    throw new Error(`Training file upload failed (${resp.status}): ${detail}`);
+  }
+
+  return resp.json();
+}
+
+async function createFineTuningJob({ apiKey, baseModel, trainingFileId, suffix, n_epochs }) {
+  const payload = {
+    model: baseModel,
+    training_file: trainingFileId,
+    suffix,
+  };
+
+  if (n_epochs) {
+    payload.hyperparameters = { n_epochs };
+  }
+
+  const resp = await fetch('https://api.openai.com/v1/fine_tuning/jobs', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) {
+    const detail = await resp.text();
+    throw new Error(`Fine-tuning job creation failed (${resp.status}): ${detail}`);
+  }
+
+  return resp.json();
+}
+
+async function getFineTuningJob(apiKey, jobId) {
+  const resp = await fetch(`https://api.openai.com/v1/fine_tuning/jobs/${encodeURIComponent(jobId)}`, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+  });
+
+  if (!resp.ok) {
+    const detail = await resp.text();
+    throw new Error(`Fine-tuning status failed (${resp.status}): ${detail}`);
+  }
+
+  return resp.json();
+}
+
+async function cancelFineTuningJob(apiKey, jobId) {
+  const resp = await fetch(`https://api.openai.com/v1/fine_tuning/jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+  });
+
+  if (!resp.ok) {
+    const detail = await resp.text();
+    throw new Error(`Fine-tuning cancel failed (${resp.status}): ${detail}`);
+  }
+
+  return resp.json();
+}
+
+function normalizeProvider(value) {
+  const p = String(value || 'openai').trim().toLowerCase();
+  return p === 'local' ? 'local' : 'openai';
+}
+
+async function chatWithOpenAI(runtimeCfg, messages, ragContext) {
+  const apiKey = String(runtimeCfg.openai_api_key || '').trim();
+  if (!apiKey) {
+    throw new Error('OpenAI key missing in app_config table.');
+  }
+
+  // Inject RAG context into the first system message (or prepend one)
+  let finalMessages = messages;
+  if (ragContext) {
+    const contextBlock =
+      '\n\nThe following verified medical reference excerpts are provided to ground your answer.\n\n' +
+      'INSTRUCTIONS:\n' +
+      '1. Answer the question using information from these excerpts.\n' +
+      '2. Medical concepts often appear under different but equivalent terms ' +
+         '(e.g. "prodrome" = "premonitory phase", "aura" = "visual disturbance"). ' +
+         'If the exact phrase is not present but the concept is covered, explain the connection and answer.\n' +
+      '3. Synthesise across multiple excerpts when needed.\n' +
+      '4. ONLY state that the information is unavailable if the excerpts are completely unrelated to the question.\n' +
+      '5. Cite the source title when relevant.\n\n' +
+      ragContext + '\n\n---\n';
+    const idx = finalMessages.findIndex((m) => m.role === 'system');
+    if (idx >= 0) {
+      finalMessages = finalMessages.map((m, i) =>
+        i === idx ? { ...m, content: m.content + contextBlock } : m
+      );
+    } else {
+      finalMessages = [{ role: 'system', content: contextBlock }, ...finalMessages];
+    }
+  }
+
+  const openaiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: runtimeCfg.openai_model || 'gpt-4o-mini',
+      temperature: 0.2,
+      messages: finalMessages,
+    }),
+  });
+
+  if (!openaiResp.ok) {
+    const errText = await openaiResp.text();
+    throw new Error(`OpenAI request failed: ${errText}`);
+  }
+
+  const data = await openaiResp.json();
+  return String(data?.choices?.[0]?.message?.content || '').trim();
+}
+
+async function chatWithLocalModel(runtimeCfg, messages, ragContext) {
+  const localUrl = String(runtimeCfg.local_api_url || '').trim() || 'http://127.0.0.1:11434';
+  const localModel = String(runtimeCfg.openai_model || '').trim() || 'llama3.1:8b';
+  const localApiKey = String(runtimeCfg.local_api_key || '').trim();
+
+  // Inject RAG context into system message (same logic as chatWithOpenAI)
+  let finalMessages = messages;
+  if (ragContext) {
+    const contextBlock =
+      '\n\nThe following verified medical reference excerpts are provided to ground your answer.\n\n' +
+      'INSTRUCTIONS:\n' +
+      '1. Answer the question using information from these excerpts.\n' +
+      '2. Medical concepts often appear under different but equivalent terms ' +
+         '(e.g. "prodrome" = "premonitory phase", "aura" = "visual disturbance"). ' +
+         'If the exact phrase is not present but the concept is covered, explain the connection and answer.\n' +
+      '3. Synthesise across multiple excerpts when needed.\n' +
+      '4. ONLY state that the information is unavailable if the excerpts are completely unrelated to the question.\n' +
+      '5. Cite the source title when relevant.\n\n' +
+      ragContext + '\n\n---\n';
+    const idx = finalMessages.findIndex((m) => m.role === 'system');
+    if (idx >= 0) {
+      finalMessages = finalMessages.map((m, i) =>
+        i === idx ? { ...m, content: m.content + contextBlock } : m
+      );
+    } else {
+      finalMessages = [{ role: 'system', content: contextBlock }, ...finalMessages];
+    }
+  }
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (localApiKey) headers.Authorization = `Bearer ${localApiKey}`;
+
+  const resp = await fetch(`${localUrl.replace(/\/+$/, '')}/api/chat`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: localModel,
+      stream: false,
+      messages: finalMessages,
+      options: { temperature: 0.2 },
+    }),
+  });
+
+  if (!resp.ok) {
+    const detail = await resp.text();
+    throw new Error(`Local model request failed (${resp.status}): ${detail}`);
+  }
+
+  const data = await resp.json();
+  return String(data?.message?.content || '').trim();
+}
+
+// ─── PDF ingestion ────────────────────────────────────────────────────────────
+
+/**
+ * Embed an array of texts in batches of 100 using OpenAI text-embedding-3-small.
+ * Returns float[][] in the same order as the input.
+ */
+/**
+ * Embed an array of texts in batches.
+ * OpenAI: batches of 100 with dimensions:768.
+ * Ollama: sequential (no batch endpoint) — shows progress via console.
+ */
+async function batchEmbedTexts(cfg, apiKey, texts) {
+  const provider = getEmbedProvider(cfg, apiKey);
+
+  if (provider.type === 'openai') {
+    const BATCH = 100;
+    const allEmbeddings = [];
+    for (let i = 0; i < texts.length; i += BATCH) {
+      const slice = texts.slice(i, i + BATCH);
+      const resp = await fetch('https://api.openai.com/v1/embeddings', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${provider.apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'text-embedding-3-small', input: slice, dimensions: 768 }),
+      });
+      if (!resp.ok) throw new Error(`OpenAI batch embeddings failed: ${await resp.text()}`);
+      const data = await resp.json();
+      allEmbeddings.push(...data.data.sort((a, b) => a.index - b.index).map((d) => d.embedding));
+    }
+    return allEmbeddings;
+  }
+
+  // Ollama fallback — embed one at a time (Ollama has no batch endpoint)
+  console.log(`[RAG] Embedding ${texts.length} chunks via Ollama ${provider.model} (sequential)…`);
+  const allEmbeddings = [];
+  for (let i = 0; i < texts.length; i++) {
+    const resp = await fetch(`${provider.url}/api/embeddings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: provider.model, prompt: texts[i] }),
+    });
+    if (!resp.ok) throw new Error(`Ollama embeddings (${provider.model}) failed: ${await resp.text()}`);
+    const data = await resp.json();
+    if (!Array.isArray(data.embedding)) throw new Error(`Ollama returned no embedding for model "${provider.model}". Is it pulled?`);
+    allEmbeddings.push(data.embedding);
+    if ((i + 1) % 10 === 0) console.log(`[RAG] Embedded ${i + 1}/${texts.length} chunks`);
+  }
+  return allEmbeddings;
+}
+
+/**
+ * Upsert an array of { title, chunk_id, content, embedding, metadata } rows
+ * into the Supabase medical_documents table in batches of 20.
+ */
+async function batchUpsertChunks(cfg, rows) {
+  const BATCH = 20;
+  let inserted = 0;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const slice = rows.slice(i, i + BATCH);
+    await supabaseRequest(cfg, 'POST', '/rest/v1/medical_documents?on_conflict=title,chunk_id', slice);
+    inserted += slice.length;
+  }
+  return inserted;
+}
+
+/**
+ * Ingest a PDF buffer: extract text → chunk → embed → upsert.
+ * Returns { title, chunks_total, chunks_new }.
+ */
+async function ingestPdfBuffer(cfg, apiKey, pdfBuffer, title) {
+  // pdf-parse v2 class API: new PDFParse({ data: buffer }) then .getText()
+  const parser = new PDFParse({ data: pdfBuffer });
+  const parsed = await parser.getText();
+  // PII masking before any storage
+  const rawText = maskPii(String(parsed.text || '').trim());
+  if (!rawText) throw new Error('PDF contains no extractable text.');
+
+  const chunks = chunkText(rawText, 800, 100);
+  if (chunks.length === 0) throw new Error('Text chunking produced no chunks.');
+
+  // Skip already-ingested chunk_ids to avoid re-embedding
+  const existingResp = await supabaseRequest(
+    cfg, 'GET',
+    `/rest/v1/medical_documents?select=chunk_id&title=eq.${encodeURIComponent(title)}&order=chunk_id.asc`,
+    null
+  );
+  const existingIds = new Set((existingResp || []).map((r) => Number(r.chunk_id)));
+  const newChunks = chunks
+    .map((content, idx) => ({ idx, content }))
+    .filter(({ idx }) => !existingIds.has(idx));
+
+  if (newChunks.length === 0) {
+    return { title, chunks_total: chunks.length, chunks_new: 0 };
+  }
+
+  const provider = getEmbedProvider(cfg, apiKey);
+  const embedModelName = provider.type === 'openai' ? 'text-embedding-3-small' : provider.model;
+  console.log(`[RAG] Ingesting "${title}" via ${embedModelName} (${newChunks.length} new chunks)`);
+
+  const embeddings = await batchEmbedTexts(cfg, apiKey, newChunks.map((c) => c.content));
+  const rows = newChunks.map(({ idx, content }, i) => ({
+    source:    'admin_upload',
+    title,
+    chunk_id:  idx,
+    content,
+    embedding: embeddings[i],
+    metadata:  {
+      total_chunks: chunks.length,
+      page_count:   parsed.numpages || null,
+      section:      detectSection(content),        // section label (abstract/methods/etc.)
+      entities:     extractMedicalEntities(content), // regex medical NER
+      embed_model:  embedModelName,                // which model produced this embedding
+    },
+  }));
+
+  const inserted = await batchUpsertChunks(cfg, rows);
+  return { title, chunks_total: chunks.length, chunks_new: inserted };
+}
+
+/** List all unique document titles with chunk counts. */
+async function listRagDocuments(cfg) {
+  const rows = await supabaseRequest(
+    cfg, 'GET',
+    '/rest/v1/medical_documents?select=title,chunk_id,created_at&order=title.asc,chunk_id.asc',
+    null
+  );
+  if (!Array.isArray(rows)) return [];
+  const map = new Map();
+  for (const r of rows) {
+    if (!map.has(r.title)) map.set(r.title, { title: r.title, chunk_count: 0, created_at: r.created_at });
+    map.get(r.title).chunk_count += 1;
+  }
+  return [...map.values()];
+}
+
+/** Delete all chunks for a given document title. */
+async function deleteRagDocument(cfg, title) {
+  await supabaseRequest(
+    cfg, 'DELETE',
+    `/rest/v1/medical_documents?title=eq.${encodeURIComponent(title)}`,
+    null
+  );
+}
+
+/** Delete ALL documents from the vector store. */
+async function deleteAllRagDocuments(cfg) {
+  // neq='' matches all rows (title is never empty due to NOT NULL constraint)
+  await supabaseRequest(cfg, 'DELETE', `/rest/v1/medical_documents?title=neq.`, null);
+}
+
+/**
+ * Parse a multipart/form-data upload (via busboy) and return { buffer, filename }.
+ * Only the first 'file' field is used; aborts after 50 MB.
+ */
+function parseMultipartUpload(req) {
+  return new Promise((resolve, reject) => {
+    const bb = busboyLib({ headers: req.headers, limits: { fileSize: 50 * 1024 * 1024 } });
+    let resolved = false;
+
+    bb.on('file', (_field, stream, info) => {
+      const { filename } = info;
+      const chunks = [];
+      stream.on('data', (d) => chunks.push(d));
+      stream.on('end', () => {
+        if (!resolved) {
+          resolved = true;
+          resolve({ buffer: Buffer.concat(chunks), filename: filename || 'upload.pdf' });
+        }
+      });
+      stream.on('error', reject);
+    });
+    bb.on('error', reject);
+    bb.on('finish', () => { if (!resolved) reject(new Error('No file field found in upload.')); });
+    req.pipe(bb);
+  });
+}
+
+// ─── RAG helpers ──────────────────────────────────────────────────────────────
+
+/** Low-level wrapper around the Supabase REST + RPC API (no SDK needed). */
+async function supabaseRequest(cfg, method, urlPath, body) {
+  const base = String(cfg.supabase_url || '').replace(/\/+$/, '');
+  const key  = String(cfg.supabase_key || '');
+  if (!base || !key) throw new Error('Supabase URL or key not configured.');
+
+  const resp = await fetch(`${base}${urlPath}`, {
+    method,
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      Prefer: method === 'POST' ? 'return=representation' : '',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const text = await resp.text();
+  if (!resp.ok) throw new Error(`Supabase ${method} ${urlPath} failed (${resp.status}): ${text}`);
+  return text ? JSON.parse(text) : null;
+}
+
+/**
+ * Detect which embedding provider to use.
+ * - OpenAI: if openai_api_key is set and starts with "sk-"
+ * - Ollama fallback: any local model (default: nomic-embed-text)
+ *
+ * Both produce 768-dim vectors:
+ *   OpenAI  → text-embedding-3-small with dimensions:768 (native truncation)
+ *   Ollama  → nomic-embed-text (768 dims natively), or MedCPT/other 768-dim models
+ */
+function getEmbedProvider(cfg, apiKey) {
+  const key = String(apiKey || cfg?.openai_api_key || '').trim();
+  if (key && key.startsWith('sk-')) {
+    return { type: 'openai', apiKey: key };
+  }
+  const ollamaUrl = String(cfg?.local_api_url || process.env.LOCAL_API_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
+  const ollamaModel = String(process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text');
+  return { type: 'ollama', url: ollamaUrl, model: ollamaModel };
+}
+
+/**
+ * Embed a single text — 768 dims from whichever provider is available.
+ * OpenAI text-embedding-3-small (dimensions:768) or Ollama nomic-embed-text.
+ */
+async function getQueryEmbedding(cfg, apiKey, text) {
+  const provider = getEmbedProvider(cfg, apiKey);
+
+  if (provider.type === 'openai') {
+    const resp = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${provider.apiKey}`, 'Content-Type': 'application/json' },
+      // dimensions:768 → OpenAI natively truncates to match Ollama nomic-embed-text
+      body: JSON.stringify({ model: 'text-embedding-3-small', input: text, dimensions: 768 }),
+    });
+    if (!resp.ok) throw new Error(`OpenAI embeddings failed: ${await resp.text()}`);
+    const data = await resp.json();
+    return data.data[0].embedding;
+  }
+
+  // Ollama fallback (nomic-embed-text, MedCPT, or custom model via OLLAMA_EMBED_MODEL)
+  const resp = await fetch(`${provider.url}/api/embeddings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: provider.model, prompt: text }),
+  });
+  if (!resp.ok) throw new Error(`Ollama embeddings (${provider.model}) failed: ${await resp.text()}`);
+  const data = await resp.json();
+  if (!Array.isArray(data.embedding)) throw new Error(`Ollama returned no embedding for model "${provider.model}". Is it pulled?`);
+  return data.embedding;
+}
+
+/**
+ * Embed `queryText` then call Supabase match_medical_documents RPC.
+ * Returns array of { id, title, content, similarity }.
+ */
+async function retrieveRagChunks(cfg, apiKey, queryText) {
+  const topK = Number(cfg.rag_top_k) || 5;
+  const embedding = await getQueryEmbedding(cfg, apiKey, queryText);
+  const results = await supabaseRequest(cfg, 'POST', '/rest/v1/rpc/match_medical_documents', {
+    query_embedding: embedding,
+    match_count: topK,
+  });
+  return Array.isArray(results) ? results : [];
+}
+
+/**
+ * Turn retrieved chunks into a formatted context string for the prompt.
+ * Returns { contextText, sources } where sources is an array of unique titles.
+ */
+function buildRagContext(chunks) {
+  if (!chunks || chunks.length === 0) return { contextText: '', sources: [] };
+  const sources = [...new Set(chunks.map((c) => c.title))];
+  const contextText = chunks
+    .map((c, i) => `[${i + 1}] ${c.title}\n${c.content}`)
+    .join('\n\n');
+  return { contextText, sources };
+}
+
+// ─── RAG v2 — utility helpers ─────────────────────────────────────────────────
+
+/** Redact common PII patterns before storing chunk text. */
+function maskPii(text) {
+  let t = String(text || '');
+  t = t.replace(/\bPatient\s+[A-Z][a-z]+ [A-Z][a-z]+\b/g, 'Patient [NAME]');
+  t = t.replace(/\b(?:DOB|Date of Birth|born)\s*:?\s*\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}\b/gi, '[DOB REDACTED]');
+  t = t.replace(/\b(?:MRN|Patient ID|Record No\.?)\s*#?\s*\d{4,10}\b/gi, '[ID REDACTED]');
+  t = t.replace(/\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/g, '[PHONE]');
+  t = t.replace(/\b\d{3}-\d{2}-\d{4}\b/g, '[SSN]');
+  return t;
+}
+
+/** Return the document section label (abstract / methods / results / etc.) from chunk text. */
+function detectSection(text) {
+  const sample = String(text || '').slice(0, 300);
+  for (const [section, pattern] of Object.entries(_SECTION_PATTERNS)) {
+    if (pattern.test(sample)) return section;
+  }
+  return 'body';
+}
+
+/** Extract medical entity candidates using regex (no ML model required). */
+function extractMedicalEntities(text) {
+  const matches = [...String(text || '').slice(0, 1500).matchAll(_MEDICAL_ENTITY_REGEX)];
+  return [...new Set(matches.map((m) => m[0].trim()))].slice(0, 10);
+}
+
+/** Dot product of two same-length float arrays (assumes unit vectors). */
+function cosineSimilarity(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return 0;
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
+  return Math.max(-1, Math.min(1, sum));
+}
+
+/** Fraction of answer tokens (minus stopwords) that appear in the context. */
+function faithfulnessScore(answer, context) {
+  const tokenize = (s) =>
+    new Set(String(s || '').toLowerCase().match(/\b\w+\b/g)?.filter((t) => !_STOPWORDS.has(t)) || []);
+  const aToks = tokenize(answer);
+  const cToks = tokenize(context);
+  if (aToks.size === 0) return 0;
+  let overlap = 0;
+  for (const t of aToks) { if (cToks.has(t)) overlap++; }
+  return Math.min(1, (overlap / aToks.size) * 1.35);
+}
+
+/**
+ * Multi-factor confidence band.
+ * score = faithfulness×0.45 + (1−hallucination)×0.35 + relevance×0.20
+ * Returns { label: 'high'|'medium'|'low'|'very_low', score }.
+ */
+function confidenceBand(faithfulness, hallucination, relevance) {
+  const score = faithfulness * 0.45 + (1 - hallucination) * 0.35 + relevance * 0.20;
+  const label = score >= 0.75 ? 'high' : score >= 0.55 ? 'medium' : score >= 0.35 ? 'low' : 'very_low';
+  return { label, score: Math.round(score * 100) / 100 };
+}
+
+/**
+ * Block only prescriptive dosage/patient advice.
+ * Hallucination risk is surfaced as a UI badge (⚠ Unverified) — never blocks
+ * the response, because LLM-as-judge scores are unreliable with local models.
+ */
+function safetyCheck(answer, halluScore) {
+  for (const rx of _PRESCRIPTIVE_RX) {
+    if (rx.test(answer)) return { safe: false, reason: 'prescriptive_patient_advice' };
+  }
+  return { safe: true, reason: 'ok' };
+}
+
+/**
+ * Embed a single text with an in-memory LRU cache.
+ * Avoids re-hitting the embedding API for repeated query/answer texts.
+ */
+async function embedCached(cfg, apiKey, text) {
+  const key = crypto.createHash('md5').update(text).digest('hex');
+  if (_embedCache.has(key)) return _embedCache.get(key);
+  const vec = await getQueryEmbedding(cfg, apiKey, text);
+  if (_embedCache.size >= EMBED_CACHE_MAX) {
+    _embedCache.delete(_embedCache.keys().next().value); // evict oldest
+  }
+  _embedCache.set(key, vec);
+  return vec;
+}
+
+/**
+ * Single LLM call for RAG utility operations (query rewrite, HyDE, hallucination check).
+ * Does NOT inject RAG context — clean prompt/response only.
+ */
+async function llmCall(runtimeCfg, provider, userPrompt, systemPrompt) {
+  const messages = [];
+  if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+  messages.push({ role: 'user', content: userPrompt });
+  try {
+    return provider === 'local'
+      ? await chatWithLocalModel(runtimeCfg, messages, null)
+      : await chatWithOpenAI(runtimeCfg, messages, null);
+  } catch (err) {
+    console.error('[RAG llmCall]', err.message);
+    return '';
+  }
+}
+
+// ─── RAG v2 — query processing ────────────────────────────────────────────────
+
+/** Ask the LLM to expand the user query into detailed clinical search terminology. */
+async function rewriteQuery(runtimeCfg, provider, query) {
+  const prompt =
+    'You are a medical search query optimizer.\n' +
+    'Rewrite the query into a specific, detailed clinical search query.\n' +
+    'Expand abbreviations. Add related medical terminology.\n' +
+    'Return ONLY the rewritten query — no labels, no explanation.\n\n' +
+    `Query: ${query}\nRewritten:`;
+  const raw = await llmCall(runtimeCfg, provider, prompt);
+  if (!raw || raw.trim().length < 10) return query;
+  const cleaned = raw.trim().replace(/^(?:rewritten query:|rewritten:|query:|answer:)\s*/i, '').trim();
+  if (cleaned.length >= 10) {
+    console.log(`[RAG] Query rewritten: "${query.slice(0, 60)}" → "${cleaned.slice(0, 60)}"`);
+    return cleaned;
+  }
+  return query;
+}
+
+/**
+ * Generate 3 alternative phrasings for multi-query retrieval.
+ * Returns [rewrittenQuery, ...variants] deduplicated.
+ */
+async function generateQueryVariants(runtimeCfg, provider, query) {
+  const prompt =
+    'Generate exactly 3 alternative search queries to find medical literature about the question below.\n' +
+    'Use different terminology and clinical perspectives.\n' +
+    'Return one query per line, no numbering, no labels.\n\n' +
+    `Question: ${query}`;
+  const raw = await llmCall(runtimeCfg, provider, prompt);
+  const variants = (raw || '').split('\n').map((l) => l.trim()).filter((l) => l.length > 8).slice(0, 3);
+  const all = [query, ...variants];
+  const seen = new Set();
+  const unique = [];
+  for (const q of all) {
+    const k = q.toLowerCase();
+    if (!seen.has(k)) { seen.add(k); unique.push(q); }
+  }
+  console.log(`[RAG] Query variants: ${unique.length}`);
+  return unique;
+}
+
+/**
+ * HyDE — embed a hypothetical document passage instead of the raw query.
+ * Produces vectors much closer to real chunk embeddings, boosting recall.
+ */
+async function hydeEmbed(cfg, apiKey, runtimeCfg, provider, query) {
+  const prompt =
+    'Write a short paragraph (3-5 sentences) from a medical research paper ' +
+    'that directly answers the following question. ' +
+    'Use specific medical terminology. No preamble, just the paragraph.\n\n' +
+    `Question: ${query}`;
+  const hypothesis = await llmCall(runtimeCfg, provider, prompt);
+  if (!hypothesis || hypothesis.length < 20) {
+    console.log('[RAG] HyDE: empty hypothesis — falling back to raw query embed');
+    return embedCached(cfg, apiKey, query);
+  }
+  console.log(`[RAG] HyDE hypothesis: ${hypothesis.slice(0, 100)}…`);
+  return embedCached(cfg, apiKey, hypothesis);
+}
+
+/**
+ * BM25 Okapi scoring on the already-retrieved candidate docs.
+ * Adds a `.bm25` field to each doc. Pure JS — no npm package needed.
+ */
+function bm25Score(docs, query) {
+  if (!docs || docs.length === 0) return docs;
+  const K1 = 1.5, B = 0.75;
+  const corpus = docs.map((d) => String(d.content || '').toLowerCase().match(/\b\w+\b/g) || []);
+  const avgdl = corpus.reduce((s, t) => s + t.length, 0) / (corpus.length || 1);
+  const qTerms = String(query || '').toLowerCase().match(/\b\w+\b/g) || [];
+  const N = docs.length;
+  const df = {};
+  for (const term of qTerms) {
+    df[term] = corpus.filter((tokens) => tokens.includes(term)).length;
+  }
+  for (let i = 0; i < docs.length; i++) {
+    const tokens = corpus[i];
+    const dl = tokens.length;
+    const tf = {};
+    for (const t of tokens) tf[t] = (tf[t] || 0) + 1;
+    let score = 0;
+    for (const term of qTerms) {
+      const f = tf[term] || 0;
+      if (!f) continue;
+      const idf = Math.log((N - (df[term] || 0) + 0.5) / ((df[term] || 0) + 0.5) + 1);
+      score += idf * (f * (K1 + 1)) / (f + K1 * (1 - B + B * (dl / avgdl)));
+    }
+    docs[i] = { ...docs[i], bm25: score };
+  }
+  return docs;
+}
+
+/**
+ * Full hybrid retrieval: HyDE dense embedding × multi-query + BM25 re-scoring.
+ * Merges results across all query variants, keeps highest similarity per chunk,
+ * then re-ranks by 65% dense + 35% BM25 and returns topK best docs.
+ */
+async function hybridRetrieve(runtimeCfg, apiKey, provider, allQueries, topK) {
+  const seen = new Map(); // `title__chunk_id` → doc (keeps highest similarity)
+  for (const q of allQueries) {
+    let emb;
+    try {
+      emb = await hydeEmbed(runtimeCfg, apiKey, runtimeCfg, provider, q);
+    } catch {
+      emb = await embedCached(runtimeCfg, apiKey, q);
+    }
+    const results = await supabaseRequest(runtimeCfg, 'POST', '/rest/v1/rpc/match_medical_documents', {
+      query_embedding: emb,
+      match_count:     topK * 3,
+    });
+    if (!Array.isArray(results)) continue;
+    for (const doc of results) {
+      const key = `${doc.title}__${doc.chunk_id ?? doc.id}`;
+      if (!seen.has(key) || (doc.similarity || 0) > (seen.get(key).similarity || 0)) {
+        seen.set(key, doc);
+      }
+    }
+  }
+
+  let merged = [...seen.values()].sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
+  console.log(`[RAG] Multi-query merge: ${merged.length} unique docs`);
+
+  merged = bm25Score(merged, allQueries[0]);
+  const maxBm25 = Math.max(...merged.map((d) => d.bm25 || 0), 1e-9);
+  for (const d of merged) {
+    d.hybridScore = 0.65 * (d.similarity || 0) + 0.35 * ((d.bm25 || 0) / maxBm25);
+  }
+  merged.sort((a, b) => (b.hybridScore || 0) - (a.hybridScore || 0));
+  return merged.slice(0, topK);
+}
+
+// ─── RAG v2 — evaluation ──────────────────────────────────────────────────────
+
+/**
+ * LLM-as-judge hallucination check.
+ * Returns { supported, hallucination_score, unsupported_claims, method }.
+ */
+async function llmHallucinationCheck(runtimeCfg, provider, answer, context) {
+  const trivials = [
+    'do not contain sufficient', 'insufficient evidence', 'no medical evidence',
+    'do not contain information', 'not contain information regarding',
+    'does not contain information', 'no information regarding',
+    'excerpts do not', 'reference excerpts do not', 'provided excerpts',
+  ];
+  if (trivials.some((t) => answer.toLowerCase().includes(t))) {
+    return { supported: false, hallucination_score: 0.0, unsupported_claims: [], method: 'trivial_skip' };
+  }
+  const prompt =
+    'You are a medical fact-checker.\n\n' +
+    `CONTEXT:\n${context.slice(0, 2000)}\n\n` +
+    `ANSWER:\n${answer}\n\n` +
+    'Evaluate whether the ANSWER is fully supported by the CONTEXT.\n' +
+    'Return ONLY this JSON (no markdown, no fences):\n' +
+    '{"supported": true, "hallucination_score": 0.0, "unsupported_claims": []}';
+  const raw = await llmCall(runtimeCfg, provider, prompt);
+  try {
+    const fenced = /```(?:json)?\s*([\s\S]*?)\s*```/.exec(raw);
+    const jsonStr = fenced ? fenced[1] : raw;
+    const obj = JSON.parse((jsonStr.match(/\{[\s\S]*\}/) || ['{}'])[0]);
+    return {
+      supported:           Boolean(obj.supported ?? false),
+      hallucination_score: Math.max(0, Math.min(1, Number(obj.hallucination_score ?? 0.5))),
+      unsupported_claims:  Array.isArray(obj.unsupported_claims) ? obj.unsupported_claims : [],
+      method:              'llm_judge',
+    };
+  } catch {
+    const faith = faithfulnessScore(answer, context);
+    return {
+      supported:           faith > 0.45,
+      hallucination_score: Math.max(0, 0.65 - faith),
+      unsupported_claims:  [],
+      method:              'faith_fallback',
+    };
+  }
+}
+
+/**
+ * Self-verify generation loop.
+ * Generates → scores faithfulness → on 2nd iteration adds repair note.
+ * Returns { reply, faithfulness }.
+ */
+async function selfVerifyGenerate(runtimeCfg, provider, messages, ragContextText, maxIter = 2) {
+  let bestReply = '', bestFaith = 0;
+  for (let i = 0; i < maxIter; i++) {
+    let msgs = messages;
+    if (i > 0) {
+      const repairNote =
+        '\n[Quality note: A previous attempt did not use the provided excerpts well. ' +
+        'Re-read the excerpts carefully. Look for synonymous terms — the concept may appear under a different name. ' +
+        'Synthesise what IS present rather than saying the information is unavailable.]';
+      const sysIdx = msgs.findIndex((m) => m.role === 'system');
+      if (sysIdx >= 0) {
+        msgs = msgs.map((m, idx) => idx === sysIdx ? { ...m, content: m.content + repairNote } : m);
+      }
+    }
+    let reply;
+    try {
+      reply = provider === 'local'
+        ? await chatWithLocalModel(runtimeCfg, msgs, ragContextText)
+        : await chatWithOpenAI(runtimeCfg, msgs, ragContextText);
+    } catch (err) {
+      console.error(`[RAG] selfVerify iter ${i + 1} failed:`, err.message);
+      continue;
+    }
+    if (!reply) continue;
+    const faith = faithfulnessScore(reply, ragContextText);
+    console.log(`[RAG] selfVerify iter ${i + 1}: faithfulness=${faith.toFixed(3)}`);
+    if (faith > bestFaith) { bestReply = reply; bestFaith = faith; }
+    if (faith > 0.35) break; // good enough — skip repair
+  }
+  return { reply: bestReply, faithfulness: bestFaith };
+}
+
+/**
+ * Persist a RAG query/answer to the Supabase chat_history table for analytics.
+ * Non-blocking (fire-and-forget safe — errors are logged, never thrown).
+ */
+async function saveRagChatHistory(cfg, { sessionId, query, rewrittenQuery, answer, faithfulness, halluScore, sources, llmUsed, embedVia }) {
+  try {
+    await supabaseRequest(cfg, 'POST', '/rest/v1/chat_history', {
+      session_id:          sessionId || 'anonymous',
+      query,
+      rewritten_query:     rewrittenQuery || query,
+      response:            answer,
+      confidence:          faithfulness > 0.6 ? 'high' : faithfulness > 0.35 ? 'medium' : 'low',
+      similarity:          faithfulness,
+      faithfulness_score:  faithfulness,
+      hallucination_score: halluScore,
+      sources:             sources || [],
+      llm_used:            llmUsed,
+      embed_via:           embedVia,
+    });
+  } catch (err) {
+    console.error('[RAG] saveRagChatHistory error:', err.message);
+  }
+}
+
+/**
+ * Build context string from retrieved chunks (v2).
+ * Includes section label, entity tags, and hybrid score per chunk.
+ */
+function buildRagContextV2(chunks) {
+  if (!chunks || chunks.length === 0) return { contextText: '', sources: [] };
+  const sources = [...new Set(chunks.map((c) => c.title))];
+  const contextText = chunks.map((c, i) => {
+    const meta     = c.metadata && typeof c.metadata === 'object' ? c.metadata : {};
+    const section  = String(meta.section || 'body');
+    const entities = Array.isArray(meta.entities) && meta.entities.length
+      ? `  Entities: ${meta.entities.slice(0, 5).join(', ')}`
+      : '';
+    const score = ((c.hybridScore ?? c.similarity) || 0).toFixed(3);
+    return (
+      `[Source ${i + 1} | ${c.title} | section=${section} | score=${score}]${entities}\n${c.content}`
+    );
+  }).join('\n\n---\n\n');
+  return { contextText, sources };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Split text into overlapping chunks (mirrors LangChain RecursiveCharacterTextSplitter). */
+function splitRecursive(text, maxLen, overlap) {
+  const separators = ['\n\n', '\n', '. ', ' ', ''];
+  function split(s, sepIdx) {
+    if (s.length <= maxLen || sepIdx >= separators.length) return [s];
+    const sep = separators[sepIdx];
+    const parts = sep ? s.split(sep) : [...s];
+    const chunks = [];
+    let current = '';
+    for (const part of parts) {
+      const candidate = current ? current + sep + part : part;
+      if (candidate.length <= maxLen) {
+        current = candidate;
+      } else {
+        if (current) chunks.push(current);
+        current = part.length <= maxLen ? part : split(part, sepIdx + 1).join('');
+      }
+    }
+    if (current) chunks.push(current);
+    // Apply overlap: carry the tail of the previous chunk into the next
+    const overlapped = [];
+    for (let i = 0; i < chunks.length; i++) {
+      if (i === 0) { overlapped.push(chunks[i]); continue; }
+      const tail = chunks[i - 1].slice(-overlap);
+      overlapped.push(tail + chunks[i]);
+    }
+    return overlapped;
+  }
+  return split(text, 0).filter((c) => c.trim().length > 0);
+}
+
+function chunkText(text, maxLen = 800, overlap = 100) {
+  return splitRecursive(text.trim(), maxLen, overlap);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+function sanitizeUuid(value) {
+  const s = String(value || '').trim();
+  if (!s) return null;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)) {
+    return null;
+  }
+  return s;
+}
+
+async function saveChatMessages({ sessionId, userId, userMessage, assistantReply, meta = {} }) {
+  const pool = getMysqlPool();
+  try {
+    await pool.execute(
+      `insert into chat_messages (session_id, user_id, role, content, created_at)
+       values (?, ?, 'user', ?, now())`,
+      [sessionId, userId, userMessage]
+    );
+    await pool.execute(
+      `insert into chat_messages
+         (session_id, user_id, role, content,
+          rag_used, confidence_label, faithfulness_score, hallu_score,
+          llm_used, sources, total_latency_ms, created_at)
+       values (?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, ?, now())`,
+      [
+        sessionId, userId, assistantReply,
+        meta.ragUsed ? 1 : 0,
+        meta.confidenceLabel  ?? null,
+        meta.faithfulnessScore != null ? meta.faithfulnessScore : null,
+        meta.halluScore        != null ? meta.halluScore        : null,
+        meta.llmUsed           ?? null,
+        meta.sources           != null ? JSON.stringify(meta.sources) : null,
+        meta.totalLatencyMs    != null ? Math.round(meta.totalLatencyMs) : null,
+      ]
+    );
+  } catch (error) {
+    console.error(`chat_messages save failed: ${error?.message || error}`);
+  }
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, encoded) {
+  const parts = String(encoded || '').split(':');
+  if (parts.length !== 2) return false;
+  const [salt, storedHash] = parts;
+  const computedHash = crypto.scryptSync(password, salt, 64).toString('hex');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(storedHash, 'hex'), Buffer.from(computedHash, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
+function isMysqlDuplicate(error) {
+  return Number(error?.errno || 0) === 1062;
+}
+
+function getMysqlPool() {
+  if (!MYSQL_HOST || !MYSQL_USER || !MYSQL_DATABASE) {
+    throw new Error('MYSQL_HOST, MYSQL_USER, and MYSQL_DATABASE are required in backend/.env');
+  }
+
+  if (!mysqlLib) {
+    try {
+      mysqlLib = require('mysql2/promise');
+    } catch {
+      throw new Error('mysql2 package is missing. Run: npm install mysql2');
+    }
+  }
+
+  if (!mysqlPool) {
+    mysqlPool = mysqlLib.createPool({
+      host: MYSQL_HOST,
+      port: MYSQL_PORT,
+      user: MYSQL_USER,
+      password: MYSQL_PASSWORD,
+      database: MYSQL_DATABASE,
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0,
+      charset: 'utf8mb4',
+    });
+  }
+
+  return mysqlPool;
+}
+
+function generateOtpCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function hashOtpCode(otp) {
+  return crypto.createHash('sha256').update(String(otp)).digest('hex');
+}
+
+function verifyOtpCode(otp, otpHash) {
+  return hashOtpCode(otp) === String(otpHash || '');
+}
+
+async function saveOtpCode({ email, purpose, otp, payloadJson }) {
+  const pool = getMysqlPool();
+  const otpHash = hashOtpCode(otp);
+
+  await pool.execute('delete from otp_codes where email = ? and purpose = ?', [email, purpose]);
+  await pool.execute(
+    `insert into otp_codes (email, purpose, otp_hash, payload_json, expires_at, used)
+     values (?, ?, ?, ?, date_add(now(), interval ? minute), 0)`,
+    [email, purpose, otpHash, payloadJson || '{}', OTP_EXPIRY_MINUTES]
+  );
+}
+
+async function getActiveOtp({ email, purpose }) {
+  const pool = getMysqlPool();
+  const [rows] = await pool.execute(
+    `select id, otp_hash, payload_json
+     from otp_codes
+     where email = ? and purpose = ? and used = 0 and expires_at > now()
+     order by id desc
+     limit 1`,
+    [email, purpose]
+  );
+  return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+}
+
+async function markOtpUsed(id) {
+  if (!id) return;
+  const pool = getMysqlPool();
+  await pool.execute('update otp_codes set used = 1 where id = ?', [id]);
+}
+
+function getMailer() {
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS || !SMTP_FROM) {
+    throw new Error('SMTP_HOST/SMTP_USER/SMTP_PASS/SMTP_FROM are required in backend/.env');
+  }
+  if (!nodemailerLib) {
+    try {
+      nodemailerLib = require('nodemailer');
+    } catch {
+      throw new Error('nodemailer package is missing. Run: npm install nodemailer');
+    }
+  }
+  if (!smtpTransporter) {
+    smtpTransporter = nodemailerLib.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_SECURE,
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    });
+  }
+  return smtpTransporter;
+}
+
+async function sendOtpEmail({ to, subject, otp, note }) {
+  const mailer = getMailer();
+  await mailer.sendMail({
+    from: SMTP_FROM,
+    to,
+    subject,
+    text: `${note}\n\nYour OTP code is: ${otp}\n\nThis code expires in ${OTP_EXPIRY_MINUTES} minutes.`,
+    html: `<p>${note}</p><p><strong>Your OTP code is: ${otp}</strong></p><p>This code expires in ${OTP_EXPIRY_MINUTES} minutes.</p>`,
+  });
+}
