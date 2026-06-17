@@ -2,10 +2,16 @@
 const crypto = require('crypto');
 const { EMBED_CACHE_MAX } = require('../config');
 
-// md5(text) → float[]  —  LRU embedding cache (shared across requests)
+// md5(text) → float[] LRU embedding cache (shared across requests)
 const _embedCache = new Map();
 
 function getEmbedProvider(cfg, apiKey) {
+  // Explicit PubMedBERT selection (local FastAPI service on port 8001)
+  if (String(cfg?.embed_provider || '').trim() === 'pubmedbert') {
+    const url = String(process.env.PUBMEDBERT_URL || 'http://127.0.0.1:8001').replace(/\/+$/, '');
+    return { type: 'pubmedbert', url };
+  }
+
   const key = String(apiKey || cfg?.openai_api_key || '').trim();
   if (key && key.startsWith('sk-')) {
     return { type: 'openai', apiKey: key };
@@ -17,6 +23,17 @@ function getEmbedProvider(cfg, apiKey) {
 
 async function getQueryEmbedding(cfg, apiKey, text) {
   const provider = getEmbedProvider(cfg, apiKey);
+
+  if (provider.type === 'pubmedbert') {
+    const resp = await fetch(`${provider.url}/embed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texts: [text] }),
+    });
+    if (!resp.ok) throw new Error(`PubMedBERT service failed: ${await resp.text()}`);
+    const data = await resp.json();
+    return data.embeddings[0];
+  }
 
   if (provider.type === 'openai') {
     const resp = await fetch('https://api.openai.com/v1/embeddings', {
@@ -56,6 +73,26 @@ async function embedCached(cfg, apiKey, text) {
 async function batchEmbedTexts(cfg, apiKey, texts) {
   const provider = getEmbedProvider(cfg, apiKey);
 
+  if (provider.type === 'pubmedbert') {
+    // FastAPI handles batching internally (batch_size=32)
+    console.log(`[RAG] Embedding ${texts.length} chunks via PubMedBERT service…`);
+    const BATCH = 64;
+    const allEmbeddings = [];
+    for (let i = 0; i < texts.length; i += BATCH) {
+      const slice = texts.slice(i, i + BATCH);
+      const resp = await fetch(`${provider.url}/embed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ texts: slice }),
+      });
+      if (!resp.ok) throw new Error(`PubMedBERT service batch failed: ${await resp.text()}`);
+      const data = await resp.json();
+      allEmbeddings.push(...data.embeddings);
+      if (i + BATCH < texts.length) console.log(`[RAG] PubMedBERT embedded ${Math.min(i + BATCH, texts.length)}/${texts.length} chunks`);
+    }
+    return allEmbeddings;
+  }
+
   if (provider.type === 'openai') {
     const BATCH = 100;
     const allEmbeddings = [];
@@ -73,7 +110,7 @@ async function batchEmbedTexts(cfg, apiKey, texts) {
     return allEmbeddings;
   }
 
-  // Ollama fallback — embed one at a time
+  // Ollama fallback embed one at a time
   console.log(`[RAG] Embedding ${texts.length} chunks via Ollama ${provider.model} (sequential)…`);
   const allEmbeddings = [];
   for (let i = 0; i < texts.length; i++) {

@@ -190,6 +190,15 @@
         <input type="number" id="ragTopK" min="1" max="20" placeholder="5"/>
       </div>
       <div>
+        <label>Embedding Provider</label>
+        <select id="embedProvider">
+          <option value="auto">Auto (OpenAI → Ollama fallback)</option>
+          <option value="pubmedbert">PubMedBERT (Local FastAPI :8001)</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div style="flex:1">
         <label>Supabase URL</label>
         <input type="text" id="ragSupabaseUrl" placeholder="https://xxx.supabase.co"/>
       </div>
@@ -429,6 +438,7 @@
       document.getElementById('cfgEnabled').checked = !!c.openai_enabled;
       document.getElementById('ragEnabled').checked = !!c.rag_enabled;
       document.getElementById('ragTopK').value = c.rag_top_k || 5;
+      document.getElementById('embedProvider').value = c.embed_provider || 'auto';
       document.getElementById('ragSupabaseUrl').value = c.supabase_url || '';
     } catch(e) { console.warn('config load:', e.message); }
   }
@@ -451,9 +461,10 @@
 
   async function saveRag() {
     const patch = {
-      rag_enabled: document.getElementById('ragEnabled').checked,
-      rag_top_k: Number(document.getElementById('ragTopK').value) || 5,
-      supabase_url: document.getElementById('ragSupabaseUrl').value.trim(),
+      rag_enabled:    document.getElementById('ragEnabled').checked,
+      rag_top_k:      Number(document.getElementById('ragTopK').value) || 5,
+      embed_provider: document.getElementById('embedProvider').value || 'auto',
+      supabase_url:   document.getElementById('ragSupabaseUrl').value.trim(),
     };
     const key = document.getElementById('ragSupabaseKey').value.trim();
     if (key) patch.supabase_key = key;

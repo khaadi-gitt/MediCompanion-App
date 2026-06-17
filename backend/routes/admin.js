@@ -58,6 +58,7 @@ module.exports = async function adminRoutes(req, res, url) {
         local_api_key_masked: maskKey(cfg.local_api_key),
         rag_enabled:          cfg.rag_enabled,
         rag_top_k:            cfg.rag_top_k,
+        embed_provider:       String(cfg.embed_provider || 'auto'),
         supabase_url:         String(cfg.supabase_url || '').trim(),
         supabase_key_masked:  maskKey(cfg.supabase_key),
         ftjob_id:             cfg.ftjob_id || null,
@@ -80,9 +81,10 @@ module.exports = async function adminRoutes(req, res, url) {
       if (typeof body.ai_provider    === 'string' && body.ai_provider.trim())     patch.ai_provider    = normalizeProvider(body.ai_provider);
       if (typeof body.local_api_url  === 'string' && body.local_api_url.trim())   patch.local_api_url  = body.local_api_url.trim();
       if (typeof body.local_api_key  === 'string')                                patch.local_api_key  = body.local_api_key.trim();
-      if (typeof body.rag_enabled    === 'boolean')                                patch.rag_enabled    = body.rag_enabled;
-      if (typeof body.rag_top_k      === 'number' && body.rag_top_k > 0)          patch.rag_top_k      = Math.min(20, body.rag_top_k);
-      if (typeof body.supabase_url   === 'string')                                 patch.supabase_url   = body.supabase_url.trim();
+      if (typeof body.rag_enabled    === 'boolean')                                                        patch.rag_enabled    = body.rag_enabled;
+      if (typeof body.rag_top_k      === 'number' && body.rag_top_k > 0)                                  patch.rag_top_k      = Math.min(20, body.rag_top_k);
+      if (typeof body.embed_provider === 'string' && ['auto','pubmedbert'].includes(body.embed_provider)) patch.embed_provider = body.embed_provider;
+      if (typeof body.supabase_url   === 'string')                                                        patch.supabase_url   = body.supabase_url.trim();
       if (typeof body.supabase_key   === 'string' && body.supabase_key.trim())    patch.supabase_key   = body.supabase_key.trim();
 
       if (Object.keys(patch).length === 0) { json(res, 400, { error: 'No valid fields to update.' }); return true; }
@@ -98,6 +100,7 @@ module.exports = async function adminRoutes(req, res, url) {
         local_api_key_masked: maskKey(updated.local_api_key),
         rag_enabled:          updated.rag_enabled,
         rag_top_k:            updated.rag_top_k,
+        embed_provider:       String(updated.embed_provider || 'auto'),
         supabase_url:         String(updated.supabase_url || '').trim(),
         supabase_key_masked:  maskKey(updated.supabase_key),
         updated_at:           updated.updated_at,

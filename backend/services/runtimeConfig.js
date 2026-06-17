@@ -7,7 +7,7 @@ async function getRuntimeConfig() {
   const pool = getMysqlPool();
   const [rows] = await pool.execute(
     `select id, openai_enabled, openai_model, openai_api_key, ai_provider, local_api_url, local_api_key,
-            rag_enabled, rag_top_k, supabase_url, supabase_key,
+            rag_enabled, rag_top_k, embed_provider, supabase_url, supabase_key,
             ftjob_id, ft_model, updated_at
      from app_config
      where id = 1
@@ -27,6 +27,7 @@ async function getRuntimeConfig() {
     local_api_key:    String(row.local_api_key || ''),
     rag_enabled:      Boolean(Number(row.rag_enabled || 0)),
     rag_top_k:        Number(row.rag_top_k || 5),
+    embed_provider:   String(row.embed_provider || 'auto'),
     supabase_url:     String(row.supabase_url || SUPABASE_URL_ENV || ''),
     supabase_key:     String(row.supabase_key || SUPABASE_SERVICE_KEY_ENV || ''),
     ftjob_id:         row.ftjob_id ? String(row.ftjob_id) : null,
@@ -42,8 +43,8 @@ async function updateRuntimeConfig(patch) {
   await pool.execute(
     `insert into app_config
       (id, openai_enabled, openai_model, openai_api_key, ai_provider, local_api_url, local_api_key,
-       rag_enabled, rag_top_k, supabase_url, supabase_key, updated_at)
-     values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())
+       rag_enabled, rag_top_k, embed_provider, supabase_url, supabase_key, updated_at)
+     values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())
      on duplicate key update
       openai_enabled = values(openai_enabled),
       openai_model   = values(openai_model),
@@ -53,6 +54,7 @@ async function updateRuntimeConfig(patch) {
       local_api_key  = values(local_api_key),
       rag_enabled    = values(rag_enabled),
       rag_top_k      = values(rag_top_k),
+      embed_provider = values(embed_provider),
       supabase_url   = values(supabase_url),
       supabase_key   = values(supabase_key),
       updated_at     = now()`,
@@ -66,6 +68,7 @@ async function updateRuntimeConfig(patch) {
       next.local_api_key,
       next.rag_enabled ? 1 : 0,
       Number(next.rag_top_k) || 5,
+      String(next.embed_provider || 'auto'),
       String(next.supabase_url || ''),
       String(next.supabase_key || ''),
     ]

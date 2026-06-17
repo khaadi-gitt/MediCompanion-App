@@ -57,7 +57,7 @@ const _MEDICAL_ENTITY_REGEX =
 
 const EMBED_CACHE_MAX = 500;
 
-// ── Domain constants ──────────────────────────────────────────────────────────
+// Domain constants
 const MEDICAL_KEYWORDS = [
   'health','medical','doctor','medicine','symptom','disease','pain','fever',
   'headache','cough','cold','vomit','nausea','diabetes','blood pressure','bp',

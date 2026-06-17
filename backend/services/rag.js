@@ -3,7 +3,7 @@ const { llmCall, chatWithOpenAI, chatWithLocalModel } = require('./llm');
 const { embedCached, getQueryEmbedding } = require('./embedding');
 const { faithfulnessScore } = require('../utils/scoring');
 
-// ── Supabase helper (shared with documents.js) ────────────────────────────────
+//  Supabase helper (shared with documents.js)
 async function supabaseRequest(cfg, method, urlPath, body) {
   const base = String(cfg.supabase_url || '').replace(/\/+$/, '');
   const key  = String(cfg.supabase_key || '');
@@ -25,7 +25,7 @@ async function supabaseRequest(cfg, method, urlPath, body) {
   return text ? JSON.parse(text) : null;
 }
 
-// ── Query processing ──────────────────────────────────────────────────────────
+// Query processing
 
 async function rewriteQuery(runtimeCfg, provider, query) {
   const prompt =
@@ -78,8 +78,7 @@ async function hydeEmbed(cfg, apiKey, runtimeCfg, provider, query) {
   return embedCached(cfg, apiKey, hypothesis);
 }
 
-// ── BM25 + hybrid retrieval ───────────────────────────────────────────────────
-
+//BM25 + hybrid retrieval
 function bm25Score(docs, query) {
   if (!docs || docs.length === 0) return docs;
   const K1 = 1.5, B = 0.75;
@@ -152,8 +151,7 @@ async function retrieveRagChunks(cfg, apiKey, queryText) {
   return Array.isArray(results) ? results : [];
 }
 
-// ── Context builders ──────────────────────────────────────────────────────────
-
+// Context builders
 function buildRagContext(chunks) {
   if (!chunks || chunks.length === 0) return { contextText: '', sources: [] };
   const sources     = [...new Set(chunks.map((c) => c.title))];
@@ -176,8 +174,7 @@ function buildRagContextV2(chunks) {
   return { contextText, sources };
 }
 
-// ── Evaluation ────────────────────────────────────────────────────────────────
-
+// Evaluation 
 async function llmHallucinationCheck(runtimeCfg, provider, answer, context) {
   const trivials = [
     'do not contain sufficient', 'insufficient evidence', 'no medical evidence',
